@@ -53,7 +53,7 @@ O **`epub-pdf-translator`** resolve esse problema na raiz:
 Clone o repositório e instale as dependências:
 
 ```bash
-git clone https://github.com/seu-usuario/epub-pdf-translator.git
+git clone https://github.com/jalawz/epub-pdf-translator.git
 cd epub-pdf-translator
 pip install -r requirements.txt
 ```
