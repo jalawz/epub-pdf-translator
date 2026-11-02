@@ -45,11 +45,9 @@ class BingTranslatorEngine(BaseTranslatorEngine):
                     time.sleep(1)
             raise RuntimeError("Failed to obtain Bing Translator authentication tokens.")
 
-    def translate(self, text: str) -> str:
+    def _translate_single_chunk(self, text: str) -> str:
         if not text or not text.strip():
             return text
-
-        text_to_send = text[:1500]
 
         for attempt in range(3):
             try:
@@ -59,7 +57,7 @@ class BingTranslatorEngine(BaseTranslatorEngine):
                     data={
                         "fromLang": self.lang_in,
                         "to": self.lang_out,
-                        "text": text_to_send,
+                        "text": text,
                         "token": self.token,
                         "key": self.key,
                     },
@@ -68,7 +66,10 @@ class BingTranslatorEngine(BaseTranslatorEngine):
                 )
                 if res.status_code == 200:
                     data = res.json()
-                    return data[0]["translations"][0]["text"]
+                    if isinstance(data, list) and len(data) > 0 and "translations" in data[0]:
+                        return data[0]["translations"][0]["text"]
+                    elif isinstance(data, dict) and data.get("statusCode") in (400, 401, 403):
+                        self._refresh_token()
                 elif res.status_code in (401, 403, 400):
                     self._refresh_token()
             except Exception:
@@ -76,6 +77,31 @@ class BingTranslatorEngine(BaseTranslatorEngine):
                 self._refresh_token()
 
         return text
+
+    def translate(self, text: str) -> str:
+        if not text or not text.strip():
+            return text
+
+        # If text is within safe Bing payload limit, translate directly
+        if len(text) <= 800:
+            return self._translate_single_chunk(text)
+
+        # Split long text by sentence boundaries (periods, newlines, question marks)
+        sentences = re.split(r'(?<=[.!?\n])\s+', text)
+        chunks = []
+        cur = ""
+        for s in sentences:
+            if len(cur) + len(s) + 1 <= 750:
+                cur = f"{cur} {s}" if cur else s
+            else:
+                if cur:
+                    chunks.append(cur)
+                cur = s
+        if cur:
+            chunks.append(cur)
+
+        translated_chunks = [self._translate_single_chunk(c) for c in chunks]
+        return " ".join(translated_chunks)
 
 class OllamaTranslatorEngine(BaseTranslatorEngine):
     """Local offline translator via Ollama."""

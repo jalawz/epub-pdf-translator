@@ -28,6 +28,7 @@ ENV/
 # Output and temporary cache
 output/
 cache/
+scratch/
 *.pdf
 !example/*.pdf
 

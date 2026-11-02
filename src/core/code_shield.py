@@ -5,6 +5,28 @@ class CodeShield:
     """Protects source code, tags, URLs and technical identifiers from translation corruption."""
 
     @staticmethod
+    def mask_code_blocks(inner_html: str) -> Tuple[str, Dict[str, str]]:
+        """Mask entire <pre>...</pre> blocks so child code blocks are not sent to translator."""
+        placeholders = {}
+        def repl(match):
+            key = f"[[_CODE_BLOCK_{len(placeholders)}_]]"
+            placeholders[key] = match.group(0)
+            return f"\n{key}\n"
+        masked = re.sub(r'<pre[^>]*>.*?</pre>', repl, inner_html, flags=re.DOTALL)
+        return masked, placeholders
+
+    @staticmethod
+    def unmask_code_blocks(text: str, placeholders: Dict[str, str]) -> str:
+        """Restore all shielded code blocks."""
+        restored = text
+        for token, original_block in placeholders.items():
+            restored = restored.replace(token, original_block)
+            idx = token.split("_")[3]
+            pattern = r'\[\[\s*_CODE_BLOCK_' + idx + r'_\s*\]\]'
+            restored = re.sub(pattern, lambda m, b=original_block: b, restored)
+        return restored
+
+    @staticmethod
     def mask_html_tags(inner_html: str) -> Tuple[str, Dict[str, str]]:
         """Mask all inner HTML tags (e.g., <code>, <a>, <span>) with safe tokens."""
         placeholders = {}

@@ -168,6 +168,44 @@ th {
 </style>
 <!-- PRINT_STYLE_END -->"""
 
+    COVER_PRINT_STYLESHEET = """<!-- PRINT_STYLE_START -->
+<style>
+@page {
+    size: A4;
+    margin: 0 !important;
+}
+html, body {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    overflow: hidden !important;
+    background: #000000 !important;
+}
+#book-content, #sbo-rt-content, div[epub\\:type="cover"], .cover {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+img {
+    width: 100vw !important;
+    height: 100vh !important;
+    object-fit: cover !important;
+    display: block !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+::-webkit-scrollbar {
+    display: none !important;
+    height: 0 !important;
+}
+</style>
+<!-- PRINT_STYLE_END -->"""
+
     def __init__(self, browser_path: Optional[str] = None):
         self.browser_path = browser_path or self._find_browser()
         if not self.browser_path:
@@ -198,23 +236,24 @@ th {
                 return path
         return None
 
-    def inject_print_style(self, html_content: str) -> str:
+    def inject_print_style(self, html_content: str, is_cover: bool = False) -> str:
         """Inject or update print stylesheet in HTML content."""
         import re
+        stylesheet = self.COVER_PRINT_STYLESHEET if is_cover else self.PRINT_STYLESHEET
         if "<!-- PRINT_STYLE_START -->" in html_content:
             return re.sub(
                 r"<!-- PRINT_STYLE_START -->.*?<!-- PRINT_STYLE_END -->",
-                self.PRINT_STYLESHEET,
+                stylesheet,
                 html_content,
                 flags=re.DOTALL
             )
         # Check if an older unbranded <style> tag exists
         if "<style>" in html_content and "@page" in html_content:
-            return re.sub(r"<style>.*?@page.*?</style>", self.PRINT_STYLESHEET, html_content, flags=re.DOTALL)
+            return re.sub(r"<style>.*?@page.*?</style>", stylesheet, html_content, flags=re.DOTALL)
 
         if "<head>" in html_content:
-            return html_content.replace("<head>", f"<head>\n{self.PRINT_STYLESHEET}")
-        return f"{self.PRINT_STYLESHEET}\n{html_content}"
+            return html_content.replace("<head>", f"<head>\n{stylesheet}")
+        return f"{stylesheet}\n{html_content}"
 
     def render_to_pdf(self, html_file_path: str, output_pdf_path: str) -> bool:
         """Compile an HTML file into a PDF document."""

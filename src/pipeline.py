@@ -56,8 +56,12 @@ class TranslationPipeline:
                 # Skip source code blocks
                 if el.xpath("ancestor::pre"):
                     continue
-                # Skip container tags that contain child block tags or links to prevent duplication
-                if el.xpath("./p") or el.xpath("./li") or el.xpath("./blockquote") or el.xpath(".//a"):
+                # Skip container tags that contain child block tags UNLESS they have direct text
+                has_child_blocks = bool(el.xpath("./p | ./li | ./blockquote | ./ul | ./ol | ./table"))
+                if has_child_blocks and not (el.text or "").strip():
+                    continue
+                # Skip list items that only wrap a navigation/TOC link
+                if el.tag in ["li", "ol", "ul"] and el.xpath("./a") and not (el.text or "").strip():
                     continue
                 text = el.text_content().strip()
                 if text and len(text) > 1 and not text.isdigit():
@@ -77,15 +81,33 @@ class TranslationPipeline:
                 txt = el.text_content().strip()
                 return idx, el, self.translator.translate(txt)
 
-            inner_html = (el.text or "") + "".join(lxml_html.tostring(c, encoding="unicode") for c in el)
-            inner_html = inner_html.strip()
+            child_blocks = el.xpath("./p | ./li | ./blockquote | ./ul | ./ol | ./table")
+            if child_blocks:
+                direct_parts = []
+                if el.text:
+                    direct_parts.append(el.text)
+                for child in el:
+                    if child not in child_blocks:
+                        direct_parts.append(lxml_html.tostring(child, encoding="unicode"))
+                inner_html = "".join(direct_parts).strip()
+            else:
+                inner_html = (el.text or "") + "".join(lxml_html.tostring(c, encoding="unicode") for c in el)
+                inner_html = inner_html.strip()
+
             if not inner_html:
                 return idx, el, None
 
-            masked_text, placeholders = CodeShield.mask_html_tags(inner_html)
-            translated = self.translator.translate(masked_text)
-            restored = CodeShield.unmask_html_tags(translated, placeholders)
-            return idx, el, restored
+            # First shield full code blocks (<pre>...</pre>)
+            pre_masked, code_placeholders = CodeShield.mask_code_blocks(inner_html)
+            # Then shield inline HTML tags (<code>, <a>, <em>, <strong>, etc.)
+            tag_masked, tag_placeholders = CodeShield.mask_html_tags(pre_masked)
+
+            translated = self.translator.translate(tag_masked)
+
+            # Restore tags and code blocks
+            restored_tags = CodeShield.unmask_html_tags(translated, tag_placeholders)
+            restored_all = CodeShield.unmask_code_blocks(restored_tags, code_placeholders)
+            return idx, el, restored_all
 
         results = []
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
@@ -99,6 +121,20 @@ class TranslationPipeline:
         for el, translated_inner in results:
             if el.tag == "a":
                 el.text = translated_inner
+                continue
+
+            child_blocks = el.xpath("./p | ./li | ./blockquote | ./ul | ./ol | ./table")
+            if child_blocks:
+                try:
+                    dummy = lxml_html.fragment_fromstring(f"<div>{translated_inner}</div>")
+                    el.text = dummy.text
+                    first_block_idx = el.index(child_blocks[0])
+                    for old_child in list(el[:first_block_idx]):
+                        el.remove(old_child)
+                    for i, new_child in enumerate(dummy):
+                        el.insert(i, new_child)
+                except Exception:
+                    el.text = re.sub(r'<[^>]+>', '', translated_inner)
             else:
                 try:
                     dummy = lxml_html.fragment_fromstring(f"<div>{translated_inner}</div>")
@@ -167,10 +203,11 @@ class TranslationPipeline:
                 with open(cached_html_file, "r", encoding="utf-8") as f:
                     chapter_html = f.read()
 
+                is_cover = (chapter_id.lower() == "cover")
                 if force_recompile or not os.path.exists(cached_pdf_file):
                     # Clean code blocks and apply print styles
                     chapter_html = re.sub(r'<pre[^>]*>.*?</pre>', fix_pre, chapter_html, flags=re.DOTALL)
-                    printable_html = self.renderer.inject_print_style(chapter_html)
+                    printable_html = self.renderer.inject_print_style(chapter_html, is_cover=is_cover)
                     with open(cached_html_file, "w", encoding="utf-8", newline="\n") as f:
                         f.write(printable_html)
                     self.renderer.render_to_pdf(cached_html_file, cached_pdf_file)
@@ -188,7 +225,8 @@ class TranslationPipeline:
             translated_html = re.sub(r'<pre[^>]*>.*?</pre>', fix_pre, translated_html, flags=re.DOTALL)
 
             # Inject printable style
-            printable_html = self.renderer.inject_print_style(translated_html)
+            is_cover = (chapter_id.lower() == "cover")
+            printable_html = self.renderer.inject_print_style(translated_html, is_cover=is_cover)
             with open(cached_html_file, "w", encoding="utf-8", newline="\n") as f:
                 f.write(printable_html)
 
