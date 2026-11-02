@@ -1,0 +1,4 @@
+lxml>=5.0.0
+requests>=2.30.0
+pypdf>=4.0.0
+gradio>=4.0.0
