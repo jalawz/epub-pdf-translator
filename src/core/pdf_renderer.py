@@ -34,10 +34,13 @@ pre, code {
     font-family: "Consolas", "Courier New", monospace !important;
     background-color: #f6f8fa;
     border-radius: 4px;
+    white-space: pre-wrap !important;
+    word-break: break-all !important;
+    overflow-wrap: anywhere !important;
 }
 pre {
     padding: 14px;
-    overflow-x: auto;
+    overflow: visible !important;
     border: 1px solid #e1e4e8;
     page-break-inside: avoid;
     line-height: 1.45;
@@ -45,6 +48,12 @@ pre {
 code {
     padding: 2px 5px;
     color: #032f62;
+    overflow: visible !important;
+}
+::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
 }
 h1, h2, h3 {
     color: #1a1f2c;

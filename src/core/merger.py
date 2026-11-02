@@ -10,16 +10,16 @@ class DocumentMerger:
     def merge_pdfs(pdf_paths: List[str], output_pdf_path: str, chapter_titles: List[str] = None) -> bool:
         """Combine multiple chapter PDFs into a single comprehensive master PDF."""
         os.makedirs(os.path.dirname(output_pdf_path), exist_ok=True)
-        merger = pypdf.PdfMerger()
+        writer = pypdf.PdfWriter()
 
         for i, pdf_path in enumerate(pdf_paths):
             if os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 0:
                 title = chapter_titles[i] if chapter_titles and i < len(chapter_titles) else f"Chapter {i+1}"
-                merger.append(pdf_path, outline_item=title)
+                writer.append(pdf_path, outline_item=title)
 
         with open(output_pdf_path, "wb") as f_out:
-            merger.write(f_out)
-        merger.close()
+            writer.write(f_out)
+        writer.close()
 
         return os.path.exists(output_pdf_path) and os.path.getsize(output_pdf_path) > 0
 
