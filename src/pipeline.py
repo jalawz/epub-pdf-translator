@@ -51,29 +51,43 @@ class TranslationPipeline:
         tree = lxml_html.fromstring(raw_html.encode("utf-8"))
         elements_to_process = []
 
-        for tag in self.TAGS_TO_TRANSLATE:
-            for el in tree.xpath(f"//{tag}"):
-                # Skip source code blocks
-                if el.xpath("ancestor::pre"):
-                    continue
-                # Skip container tags that contain child block tags UNLESS they have direct text
-                has_child_blocks = bool(el.xpath("./p | ./li | ./blockquote | ./ul | ./ol | ./table"))
-                if has_child_blocks and not (el.text or "").strip():
-                    continue
-                # Skip list items that only wrap a navigation/TOC link
-                if el.tag in ["li", "ol", "ul"] and el.xpath("./a") and not (el.text or "").strip():
-                    continue
-                text = el.text_content().strip()
+        is_toc = "TOC" in chapter_zip_path
+        if is_toc:
+            # For TOC files, translate all navigation anchor links directly
+            for a_el in tree.xpath("//a"):
+                text = a_el.text_content().strip()
                 if text and len(text) > 1 and not text.isdigit():
-                    elements_to_process.append(el)
+                    elements_to_process.append(a_el)
+        else:
+            for tag in self.TAGS_TO_TRANSLATE:
+                for el in tree.xpath(f"//{tag}"):
+                    # Skip source code blocks
+                    if el.xpath("ancestor::pre"):
+                        continue
+                    # Skip container tags that contain child block tags UNLESS they have direct text
+                    has_child_blocks = bool(el.xpath("./p | ./li | ./blockquote | ./ul | ./ol | ./table"))
+                    if has_child_blocks and not (el.text or "").strip():
+                        continue
+                    # Skip pure link wrappers (where the container has no content other than a link)
+                    is_pure_link = (
+                        el.tag in ["li", "ol", "ul"] and
+                        len(el) == 1 and el[0].tag == "a" and
+                        not (el.text or "").strip() and
+                        not (el[0].tail or "").strip()
+                    )
+                    if is_pure_link:
+                        continue
+                    text = el.text_content().strip()
+                    if text and len(text) > 1 and not text.isdigit():
+                        elements_to_process.append(el)
 
-        # Also process navigation and TOC links (not inside paragraphs)
-        for a_el in tree.xpath("//li/a | //nav//a | //ol//a | //ul//a"):
-            if a_el.xpath("ancestor::p"):
-                continue
-            text = a_el.text_content().strip()
-            if text and len(text) > 1 and not text.isdigit() and a_el not in elements_to_process:
-                elements_to_process.append(a_el)
+            # Also process standalone navigation links not inside paragraphs
+            for a_el in tree.xpath("//li/a | //nav//a | //ol//a | //ul//a"):
+                if a_el.xpath("ancestor::p"):
+                    continue
+                text = a_el.text_content().strip()
+                if text and len(text) > 1 and not text.isdigit() and a_el not in elements_to_process:
+                    elements_to_process.append(a_el)
 
         def process_item(item):
             idx, el = item
