@@ -55,9 +55,10 @@ class EpubParser:
         manifest = {}
         for item in tree.xpath("//opf:item", namespaces=ns):
             item_id = item.get("id")
-            href = item.get("href")
+            href = item.get("href", "")
+            clean_href = href.lstrip("/\\")
             # Resolve relative to OPF location inside zip
-            full_href = posixpath.normpath(posixpath.join(self.opf_dir, href)) if self.opf_dir else href
+            full_href = posixpath.normpath(posixpath.join(self.opf_dir, clean_href)) if self.opf_dir else clean_href
             manifest[item_id] = full_href
             
         # Spine
@@ -75,7 +76,9 @@ class EpubParser:
         for name in self.zip_ref.namelist():
             lower = name.lower()
             if lower.endswith((".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ttf", ".woff", ".woff2")):
-                dest_path = os.path.join(target_dir, os.path.normpath(name))
+                # Strip leading slashes to prevent absolute path resolution to C:\ on Windows
+                clean_name = name.lstrip("/\\")
+                dest_path = os.path.join(target_dir, os.path.normpath(clean_name))
                 os.makedirs(os.path.dirname(dest_path), exist_ok=True)
                 with open(dest_path, "wb") as f:
                     f.write(self.zip_ref.read(name))

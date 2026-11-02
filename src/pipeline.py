@@ -108,7 +108,8 @@ class TranslationPipeline:
             attr, quote, url = match.groups()
             if url.startswith(("http://", "https://", "data:", "#")):
                 return match.group(0)
-            norm_url = posixpath.normpath(posixpath.join(chapter_dir_in_zip, url)) if chapter_dir_in_zip else url
+            clean_url = url.lstrip("/\\")
+            norm_url = posixpath.normpath(posixpath.join(chapter_dir_in_zip, clean_url)) if chapter_dir_in_zip else clean_url
             return f'{attr}={quote}{rel_assets_path}/{norm_url}{quote}'
 
         html_str = re.sub(r'(src|href)=([\'\"])([^\'\"]+)\2', fix_asset_url, html_str)
