@@ -153,6 +153,14 @@ class TranslationPipeline:
             translated_html = self._translate_chapter_content(raw_html, chapter_path)
             translated_files_for_epub[chapter_path] = translated_html
 
+            # Clean up excessive blank lines in code blocks for IDE-like spacing
+            def fix_pre(match):
+                c = match.group(0)
+                c = re.sub(r'(@[a-zA-Z0-9_\.]+[^\n<]*[</span></strong>]*)\n\n+', r'\1\n', c)
+                c = re.sub(r'\n{2,}(</code>|</pre>)', r'\n\1', c)
+                return c
+            translated_html = re.sub(r'<pre[^>]*>.*?</pre>', fix_pre, translated_html, flags=re.DOTALL)
+
             # Inject printable style
             printable_html = self.renderer.inject_print_style(translated_html)
             with open(cached_html_file, "w", encoding="utf-8") as f:

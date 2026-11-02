@@ -30,29 +30,48 @@ img {
     display: block;
     margin: 20px auto;
 }
-pre, code {
-    font-family: "Consolas", "Courier New", monospace !important;
-    background-color: #f6f8fa;
-    border-radius: 4px;
+/* Modern IDE Code Styling */
+#book-content #sbo-rt-content pre,
+pre {
+    font-family: 'Consolas', 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Courier New', monospace !important;
+    font-size: 0.83rem !important;
+    line-height: 1.25 !important;
+    background-color: #f8fafc !important;
+    border: 1px solid #e2e8f0 !important;
+    border-left: 3px solid #3b82f6 !important;
+    border-radius: 6px !important;
+    padding: 10px 14px !important;
+    margin: 12px 0 !important;
     white-space: pre-wrap !important;
     word-break: break-all !important;
-    overflow-wrap: anywhere !important;
-}
-pre {
-    padding: 14px;
     overflow: visible !important;
-    border: 1px solid #e1e4e8;
-    page-break-inside: avoid;
-    line-height: 1.45;
 }
-code {
-    padding: 2px 5px;
-    color: #032f62;
-    overflow: visible !important;
+#book-content #sbo-rt-content pre code,
+pre code {
+    font-family: inherit !important;
+    font-size: inherit !important;
+    line-height: inherit !important;
+    background: transparent !important;
+    padding: 0 !important;
+}
+code.inlineCode,
+:not(pre) > code {
+    font-family: 'Consolas', 'Cascadia Code', monospace !important;
+    font-size: 0.86em !important;
+    background-color: #f1f5f9 !important;
+    color: #0f172a !important;
+    padding: 2px 5px !important;
+    border-radius: 4px !important;
+    border: 1px solid #e2e8f0 !important;
+}
+span.code-highlight {
+    background-color: #e0e7ff !important;
+    color: #3730a3 !important;
+    padding: 1px 4px !important;
+    border-radius: 3px !important;
 }
 ::-webkit-scrollbar {
     display: none !important;
-    width: 0 !important;
     height: 0 !important;
 }
 h1, h2, h3 {
