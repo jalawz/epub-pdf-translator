@@ -56,15 +56,27 @@ class TranslationPipeline:
                 # Skip source code blocks
                 if el.xpath("ancestor::pre"):
                     continue
-                # Skip container tags that contain child block tags to prevent duplication
-                if el.xpath("./p") or el.xpath("./li") or el.xpath("./blockquote"):
+                # Skip container tags that contain child block tags or links to prevent duplication
+                if el.xpath("./p") or el.xpath("./li") or el.xpath("./blockquote") or el.xpath(".//a"):
                     continue
                 text = el.text_content().strip()
                 if text and len(text) > 1 and not text.isdigit():
                     elements_to_process.append(el)
 
+        # Also process navigation and TOC links (not inside paragraphs)
+        for a_el in tree.xpath("//li/a | //nav//a | //ol//a | //ul//a"):
+            if a_el.xpath("ancestor::p"):
+                continue
+            text = a_el.text_content().strip()
+            if text and len(text) > 1 and not text.isdigit() and a_el not in elements_to_process:
+                elements_to_process.append(a_el)
+
         def process_item(item):
             idx, el = item
+            if el.tag == "a":
+                txt = el.text_content().strip()
+                return idx, el, self.translator.translate(txt)
+
             inner_html = (el.text or "") + "".join(lxml_html.tostring(c, encoding="unicode") for c in el)
             inner_html = inner_html.strip()
             if not inner_html:
@@ -85,15 +97,18 @@ class TranslationPipeline:
 
         # Update DOM nodes
         for el, translated_inner in results:
-            try:
-                dummy = lxml_html.fragment_fromstring(f"<div>{translated_inner}</div>")
-                el.clear()
-                el.text = dummy.text
-                for child in dummy:
-                    el.append(child)
-            except Exception:
-                el.clear()
-                el.text = re.sub(r'<[^>]+>', '', translated_inner)
+            if el.tag == "a":
+                el.text = translated_inner
+            else:
+                try:
+                    dummy = lxml_html.fragment_fromstring(f"<div>{translated_inner}</div>")
+                    el.clear()
+                    el.text = dummy.text
+                    for child in dummy:
+                        el.append(child)
+                except Exception:
+                    el.clear()
+                    el.text = re.sub(r'<[^>]+>', '', translated_inner)
 
         # Fix relative paths to extracted assets
         chapter_dir_in_zip = posixpath.dirname(chapter_zip_path)
@@ -115,7 +130,7 @@ class TranslationPipeline:
         html_str = re.sub(r'(src|href)=([\'\"])([^\'\"]+)\2', fix_asset_url, html_str)
         return html_str
 
-    def run(self, progress_callback: Optional[Callable[[float, str], None]] = None) -> Tuple[str, str]:
+    def run(self, progress_callback: Optional[Callable[[float, str], None]] = None, force_recompile: bool = False) -> Tuple[str, str]:
         """Execute translation across all spine chapters with checkpointing."""
         # Step 1: Extract assets
         if progress_callback:
@@ -128,7 +143,13 @@ class TranslationPipeline:
         translated_files_for_epub: Dict[str, str] = {}
         chapter_titles = []
 
-        # Step 2: Translate chapters
+        # Helper to clean code and terminal blocks
+        def fix_pre(match):
+            c = match.group(0).replace("\r\n", "\n").replace("\r", "\n")
+            c = re.sub(r'\n{2,}', '\n', c)
+            return c
+
+        # Step 2: Translate and compile chapters
         for i, chapter_path in enumerate(spine_items):
             step_progress = 0.05 + 0.85 * (i / total_items)
             chap_name = os.path.basename(chapter_path)
@@ -136,15 +157,25 @@ class TranslationPipeline:
             chapter_titles.append(chapter_id.replace("_", " ").title())
 
             if progress_callback:
-                progress_callback(step_progress, f"Translating [{i+1}/{total_items}]: {chapter_id}...")
+                progress_callback(step_progress, f"Processing [{i+1}/{total_items}]: {chapter_id}...")
 
             cached_html_file = os.path.join(self.chapters_dir, f"{chapter_id}.html")
             cached_pdf_file = os.path.join(self.pdfs_dir, f"{chapter_id}.pdf")
 
             # Check cache
-            if os.path.exists(cached_html_file) and os.path.exists(cached_pdf_file):
+            if os.path.exists(cached_html_file):
                 with open(cached_html_file, "r", encoding="utf-8") as f:
-                    translated_files_for_epub[chapter_path] = f.read()
+                    chapter_html = f.read()
+
+                if force_recompile or not os.path.exists(cached_pdf_file):
+                    # Clean code blocks and apply print styles
+                    chapter_html = re.sub(r'<pre[^>]*>.*?</pre>', fix_pre, chapter_html, flags=re.DOTALL)
+                    printable_html = self.renderer.inject_print_style(chapter_html)
+                    with open(cached_html_file, "w", encoding="utf-8", newline="\n") as f:
+                        f.write(printable_html)
+                    self.renderer.render_to_pdf(cached_html_file, cached_pdf_file)
+
+                translated_files_for_epub[chapter_path] = chapter_html
                 generated_pdfs.append(cached_pdf_file)
                 continue
 
@@ -153,17 +184,12 @@ class TranslationPipeline:
             translated_html = self._translate_chapter_content(raw_html, chapter_path)
             translated_files_for_epub[chapter_path] = translated_html
 
-            # Clean up excessive blank lines in code blocks for IDE-like spacing
-            def fix_pre(match):
-                c = match.group(0)
-                c = re.sub(r'(@[a-zA-Z0-9_\.]+[^\n<]*[</span></strong>]*)\n\n+', r'\1\n', c)
-                c = re.sub(r'\n{2,}(</code>|</pre>)', r'\n\1', c)
-                return c
+            # Clean up excessive blank lines in code blocks and terminal commands
             translated_html = re.sub(r'<pre[^>]*>.*?</pre>', fix_pre, translated_html, flags=re.DOTALL)
 
             # Inject printable style
             printable_html = self.renderer.inject_print_style(translated_html)
-            with open(cached_html_file, "w", encoding="utf-8") as f:
+            with open(cached_html_file, "w", encoding="utf-8", newline="\n") as f:
                 f.write(printable_html)
 
             # Render PDF for chapter
@@ -177,7 +203,7 @@ class TranslationPipeline:
         final_pdf_path = os.path.join(self.output_dir, f"{self.safe_title}_{self.lang_out.upper()}.pdf")
         final_epub_path = os.path.join(self.output_dir, f"{self.safe_title}_{self.lang_out.upper()}.epub")
 
-        DocumentMerger.merge_pdfs(generated_pdfs, final_pdf_path, chapter_titles)
+        DocumentMerger.merge_pdfs(generated_pdfs, final_pdf_path, chapter_titles, spine_items)
 
         if progress_callback:
             progress_callback(0.97, "Packaging translated EPUB package...")

@@ -6,7 +6,7 @@ from typing import Optional
 class PdfRenderer:
     """Renders HTML+CSS chapters into print-ready A4 PDF documents using a headless browser."""
 
-    PRINT_STYLESHEET = """
+    PRINT_STYLESHEET = """<!-- PRINT_STYLE_START -->
 <style>
 @page {
     size: A4;
@@ -17,7 +17,7 @@ class PdfRenderer:
 }
 body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    line-height: 1.6;
+    line-height: 1.55;
     color: #24292e;
     background: #ffffff;
     max-width: 900px;
@@ -28,12 +28,75 @@ img {
     max-width: 100% !important;
     height: auto !important;
     display: block;
-    margin: 20px auto;
+    margin: 18px auto;
 }
-/* Modern IDE Code Styling */
+
+/* Page Break Integrity */
+blockquote,
+.packt_quote,
+.packt_tip,
+.note,
+figure,
+.mediaobject,
+pre,
+table,
+tr {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+}
+h1, h2, h3, h4, h5, h6 {
+    break-after: avoid !important;
+    page-break-after: avoid !important;
+}
+p, li {
+    orphans: 3 !important;
+    widows: 3 !important;
+}
+
+/* Callout and Quote Styling */
+blockquote,
+.packt_quote,
+.packt_tip,
+.note {
+    background: #f0f7ff !important;
+    border-left: 4px solid #0284c7 !important;
+    padding: 12px 18px !important;
+    margin: 16px 0 !important;
+    border-radius: 4px !important;
+}
+blockquote p,
+.packt_quote p,
+.packt_tip p,
+.note p {
+    margin: 0 0 6px 0 !important;
+    line-height: 1.45 !important;
+    font-style: normal !important;
+}
+blockquote p:last-child,
+.packt_quote p:last-child,
+.packt_tip p:last-child,
+.note p:last-child {
+    margin-bottom: 0 !important;
+}
+
+/* Compact Lists */
+ol, ul {
+    margin: 8px 0 12px 20px !important;
+    padding-left: 8px !important;
+}
+ol li, ul li {
+    margin-bottom: 4px !important;
+    line-height: 1.45 !important;
+}
+ol li p, ul li p {
+    margin: 0 0 4px 0 !important;
+    line-height: 1.45 !important;
+}
+
+/* Modern IDE Code & Terminal Styling */
 #book-content #sbo-rt-content pre,
 pre {
-    font-family: 'Consolas', 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Courier New', monospace !important;
+    font-family: 'Consolas', 'Cascadia Code', 'JetBrains Mono', 'Fira Code', 'Courier New', monospace !important;
     font-size: 0.83rem !important;
     line-height: 1.25 !important;
     background-color: #f8fafc !important;
@@ -90,12 +153,6 @@ h2 {
     padding-bottom: 0.3em;
     margin-top: 1.3em;
 }
-blockquote {
-    border-left: 4px solid #0366d6;
-    background-color: #f1f8ff;
-    padding: 10px 15px;
-    margin: 15px 0;
-}
 table {
     border-collapse: collapse;
     width: 100%;
@@ -109,7 +166,7 @@ th {
     background-color: #f6f8fa;
 }
 </style>
-"""
+<!-- PRINT_STYLE_END -->"""
 
     def __init__(self, browser_path: Optional[str] = None):
         self.browser_path = browser_path or self._find_browser()
@@ -142,9 +199,21 @@ th {
         return None
 
     def inject_print_style(self, html_content: str) -> str:
-        """Inject print stylesheet into HTML content."""
+        """Inject or update print stylesheet in HTML content."""
+        import re
+        if "<!-- PRINT_STYLE_START -->" in html_content:
+            return re.sub(
+                r"<!-- PRINT_STYLE_START -->.*?<!-- PRINT_STYLE_END -->",
+                self.PRINT_STYLESHEET,
+                html_content,
+                flags=re.DOTALL
+            )
+        # Check if an older unbranded <style> tag exists
+        if "<style>" in html_content and "@page" in html_content:
+            return re.sub(r"<style>.*?@page.*?</style>", self.PRINT_STYLESHEET, html_content, flags=re.DOTALL)
+
         if "<head>" in html_content:
-            return html_content.replace("<head>", f"<head>{self.PRINT_STYLESHEET}")
+            return html_content.replace("<head>", f"<head>\n{self.PRINT_STYLESHEET}")
         return f"{self.PRINT_STYLESHEET}\n{html_content}"
 
     def render_to_pdf(self, html_file_path: str, output_pdf_path: str) -> bool:
