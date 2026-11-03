@@ -11,6 +11,7 @@ from src.core.translator import BaseTranslatorEngine, BingTranslatorEngine
 from src.core.pdf_renderer import PdfRenderer
 from src.core.merger import DocumentMerger
 from src.core.quality_auditor import QualityAuditor
+from src.core.library import BookLibrary
 
 class TranslationPipeline:
     """Orchestrates end-to-end EPUB translation and PDF generation with checkpointing."""
@@ -184,7 +185,12 @@ class TranslationPipeline:
         html_str = re.sub(r'(src|href)=([\'\"])([^\'\"]+)\2', fix_asset_url, html_str)
         return html_str
 
-    def run(self, progress_callback: Optional[Callable[[float, str], None]] = None, force_recompile: bool = False) -> Tuple[str, str]:
+    def run(
+        self,
+        progress_callback: Optional[Callable[[float, str], None]] = None,
+        force_recompile: bool = False,
+        keep_cache: bool = False
+    ) -> Tuple[str, str]:
         """Execute translation across all spine chapters with checkpointing."""
         # Step 1: Extract assets
         if progress_callback:
@@ -286,6 +292,33 @@ class TranslationPipeline:
             progress_callback(0.97, "Packaging translated EPUB package...")
 
         DocumentMerger.pack_epub(self.epub_path, translated_files_for_epub, final_epub_path)
+
+        # Step 5: Register publication in self-hosted BookLibrary
+        try:
+            library = BookLibrary(self.output_dir)
+            library.add_book(
+                pdf_path=final_pdf_path,
+                epub_path=final_epub_path,
+                metadata={
+                    "title": self.parser.metadata.get("title") or self.safe_title,
+                    "author": self.parser.metadata.get("creator") or "Autor Desconhecido",
+                    "quality_certified": (total_suspicious == 0)
+                },
+                lang=self.lang_out,
+                source_lang=self.lang_in
+            )
+        except Exception as e:
+            print(f"Warning: Failed to auto-register in library: {e}")
+
+        # Step 6: Cleanup intermediate broken/split chapter PDFs if keep_cache is False
+        if not keep_cache and os.path.exists(self.pdfs_dir):
+            for pdf_f in os.listdir(self.pdfs_dir):
+                p = os.path.join(self.pdfs_dir, pdf_f)
+                try:
+                    if os.path.isfile(p):
+                        os.remove(p)
+                except Exception:
+                    pass
 
         if progress_callback:
             progress_callback(1.0, f"Complete! Output ready in {self.output_dir}")
