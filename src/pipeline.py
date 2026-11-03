@@ -10,6 +10,7 @@ from src.core.code_shield import CodeShield
 from src.core.translator import BaseTranslatorEngine, BingTranslatorEngine
 from src.core.pdf_renderer import PdfRenderer
 from src.core.merger import DocumentMerger
+from src.core.quality_auditor import QualityAuditor
 
 class TranslationPipeline:
     """Orchestrates end-to-end EPUB translation and PDF generation with checkpointing."""
@@ -64,10 +65,13 @@ class TranslationPipeline:
                     # Skip source code blocks
                     if el.xpath("ancestor::pre"):
                         continue
-                    # Skip container tags that contain child block tags UNLESS they have direct text
-                    has_child_blocks = bool(el.xpath("./p | ./li | ./blockquote | ./ul | ./ol | ./table"))
-                    if has_child_blocks and not (el.text or "").strip():
-                        continue
+                    # Skip container tags that contain child block tags UNLESS they have direct content before the first child block
+                    child_blocks = el.xpath("./p | ./li | ./blockquote | ./ul | ./ol | ./table")
+                    if child_blocks:
+                        first_block_idx = el.index(child_blocks[0])
+                        has_direct_content = bool((el.text or "").strip() or el[:first_block_idx])
+                        if not has_direct_content:
+                            continue
                     # Skip pure link wrappers (where the container has no content other than a link)
                     is_pure_link = (
                         el.tag in ["li", "ol", "ul"] and
@@ -97,12 +101,12 @@ class TranslationPipeline:
 
             child_blocks = el.xpath("./p | ./li | ./blockquote | ./ul | ./ol | ./table")
             if child_blocks:
+                first_block_idx = el.index(child_blocks[0])
                 direct_parts = []
                 if el.text:
                     direct_parts.append(el.text)
-                for child in el:
-                    if child not in child_blocks:
-                        direct_parts.append(lxml_html.tostring(child, encoding="unicode"))
+                for child in el[:first_block_idx]:
+                    direct_parts.append(lxml_html.tostring(child, encoding="unicode"))
                 inner_html = "".join(direct_parts).strip()
             else:
                 inner_html = (el.text or "") + "".join(lxml_html.tostring(c, encoding="unicode") for c in el)
@@ -248,7 +252,28 @@ class TranslationPipeline:
             self.renderer.render_to_pdf(cached_html_file, cached_pdf_file)
             generated_pdfs.append(cached_pdf_file)
 
-        # Step 3: Merge into master documents
+        # Step 3: Automated Quality Gate Audit
+        audit_results = {}
+        total_suspicious = 0
+        for chap_path, chap_html in translated_files_for_epub.items():
+            chap_id = os.path.splitext(os.path.basename(chap_path))[0]
+            flagged = QualityAuditor.audit_html(chap_html)
+            if flagged:
+                audit_results[chap_id] = flagged
+                total_suspicious += len(flagged)
+
+        import json
+        audit_report_path = os.path.join(self.output_dir, "translation_quality_report.json")
+        with open(audit_report_path, "w", encoding="utf-8") as f_aud:
+            json.dump({
+                "book": self.safe_title,
+                "total_chapters": len(translated_files_for_epub),
+                "untranslated_prose_count": total_suspicious,
+                "quality_certified": (total_suspicious == 0),
+                "flagged_elements": audit_results
+            }, f_aud, indent=2, ensure_ascii=False)
+
+        # Step 4: Merge into master documents
         if progress_callback:
             progress_callback(0.92, "Consolidating master PDF publication...")
 
