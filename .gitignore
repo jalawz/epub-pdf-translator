@@ -31,6 +31,8 @@ cache/
 scratch/
 *.pdf
 !example/*.pdf
+*.onnx
+src/models/
 
 # IDEs
 .idea/

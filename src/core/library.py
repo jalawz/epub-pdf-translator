@@ -41,8 +41,8 @@ class BookLibrary:
         book_dir = os.path.join(self.library_dir, lang_code, slug)
         os.makedirs(book_dir, exist_ok=True)
 
-        dest_pdf = os.path.join(book_dir, "book.pdf")
-        dest_epub = os.path.join(book_dir, "book.epub")
+        dest_pdf = os.path.join(book_dir, f"{slug}_{lang_code.upper()}.pdf")
+        dest_epub = os.path.join(book_dir, f"{slug}_{lang_code.upper()}.epub")
         dest_cover = os.path.join(book_dir, "cover.png")
         dest_meta = os.path.join(book_dir, "metadata.json")
 
@@ -66,10 +66,15 @@ class BookLibrary:
         pdf_size_mb = round(os.path.getsize(dest_pdf) / (1024 * 1024), 2)
         epub_size_mb = round(os.path.getsize(dest_epub) / (1024 * 1024), 2)
 
+        category = metadata.get("category")
+        if not category:
+            category = "translation" if source_lang.lower().strip() != lang_code.lower().strip() else "ocr"
+
         record = {
             "title": title,
             "author": metadata.get("author") or "Autor Desconhecido",
             "slug": slug,
+            "category": category,
             "lang": lang_code,
             "source_lang": source_lang.lower().strip(),
             "pages": page_count,
@@ -88,8 +93,8 @@ class BookLibrary:
         logger.info(f"Book registered in library: [{lang_code}] {title} -> {book_dir}")
         return record
 
-    def list_books(self, lang: Optional[str] = None) -> List[Dict]:
-        """List all books in the library, optionally filtered by language, ordered by date_added desc."""
+    def list_books(self, lang: Optional[str] = None, category: Optional[str] = None) -> List[Dict]:
+        """List all books in the library, optionally filtered by language and category ('translation', 'ocr')."""
         books = []
         if not os.path.exists(self.library_dir):
             return books
@@ -117,29 +122,60 @@ class BookLibrary:
                     try:
                         with open(meta_file, "r", encoding="utf-8") as f:
                             data = json.load(f)
+                        slug = data.get("slug", item)
                         data["book_dir"] = book_dir
-                        data["pdf_path"] = os.path.join(book_dir, "book.pdf")
-                        data["epub_path"] = os.path.join(book_dir, "book.epub")
+                        data["pdf_path"] = self._resolve_book_file(book_dir, "pdf", slug, lang_code)
+                        data["epub_path"] = self._resolve_book_file(book_dir, "epub", slug, lang_code)
                         cover_candidate = os.path.join(book_dir, "cover.png")
                         data["cover_path"] = cover_candidate if os.path.exists(cover_candidate) else None
+                        
+                        b_cat = data.get("category")
+                        if not b_cat:
+                            b_cat = "translation" if data.get("source_lang") != data.get("lang") else "ocr"
+                            data["category"] = b_cat
+                        
                         books.append(data)
                     except Exception as e:
                         logger.error(f"Error reading metadata from {meta_file}: {e}")
+
+        # Filter by category if requested
+        if category and category.lower() not in ["todos", "all", ""]:
+            books = [b for b in books if b.get("category", "").lower() == category.lower()]
 
         # Sort by date added descending
         books.sort(key=lambda x: x.get("date_added", ""), reverse=True)
         return books
 
+    def _resolve_book_file(self, book_dir: str, ext: str, slug: str, lang_code: str) -> str:
+        """Find the publication file, renaming legacy 'book.{ext}' to '{slug}_{LANG}.{ext}' if present."""
+        named_candidate = os.path.join(book_dir, f"{slug}_{lang_code.upper()}.{ext}")
+        if os.path.exists(named_candidate):
+            return named_candidate
+
+        legacy = os.path.join(book_dir, f"book.{ext}")
+        if os.path.exists(legacy):
+            try:
+                shutil.move(legacy, named_candidate)
+                return named_candidate
+            except Exception:
+                return legacy
+
+        for f in os.listdir(book_dir):
+            if f.lower().endswith(f".{ext}"):
+                return os.path.join(book_dir, f)
+        return ""
+
     def get_book(self, lang: str, slug: str) -> Optional[Dict]:
         """Retrieve single book record by language and slug."""
-        book_dir = os.path.join(self.library_dir, lang.lower().strip(), slug)
+        lang_code = lang.lower().strip()
+        book_dir = os.path.join(self.library_dir, lang_code, slug)
         meta_file = os.path.join(book_dir, "metadata.json")
         if os.path.exists(meta_file):
             with open(meta_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
             data["book_dir"] = book_dir
-            data["pdf_path"] = os.path.join(book_dir, "book.pdf")
-            data["epub_path"] = os.path.join(book_dir, "book.epub")
+            data["pdf_path"] = self._resolve_book_file(book_dir, "pdf", slug, lang_code)
+            data["epub_path"] = self._resolve_book_file(book_dir, "epub", slug, lang_code)
             cover_candidate = os.path.join(book_dir, "cover.png")
             data["cover_path"] = cover_candidate if os.path.exists(cover_candidate) else None
             return data

@@ -257,20 +257,22 @@ img {
 
     def render_to_pdf(self, html_file_path: str, output_pdf_path: str) -> bool:
         """Compile an HTML file into a PDF document."""
-        os.makedirs(os.path.dirname(output_pdf_path), exist_ok=True)
+        abs_html = os.path.abspath(html_file_path)
+        abs_pdf = os.path.abspath(output_pdf_path)
+        os.makedirs(os.path.dirname(abs_pdf), exist_ok=True)
         
         cmd = [
             self.browser_path,
             "--headless",
             "--disable-gpu",
             "--no-pdf-header-footer",
-            f"--print-to-pdf={output_pdf_path}",
-            html_file_path
+            f"--print-to-pdf={abs_pdf}",
+            abs_html
         ]
         
         try:
             subprocess.run(cmd, check=True, capture_output=True)
-            return os.path.exists(output_pdf_path) and os.path.getsize(output_pdf_path) > 0
+            return os.path.exists(abs_pdf) and os.path.getsize(abs_pdf) > 0
         except Exception as e:
             print(f"[Renderer Error] {e}")
             return False
