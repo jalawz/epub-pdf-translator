@@ -3,6 +3,7 @@ import re
 import json
 import shutil
 import logging
+import unicodedata
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple
 
@@ -18,8 +19,14 @@ class BookLibrary:
 
     @staticmethod
     def slugify(title: str) -> str:
-        """Create a filesystem-friendly slug for book folders."""
-        slug = re.sub(r'[^a-zA-Z0-9_\-]', '_', title)
+        """Create a filesystem-friendly slug for book titles.
+
+        Removes accents/diacritics (NFKD normalization) so that e.g.
+        "Edição" becomes "Edicao" instead of "Edi_o".
+        """
+        slug = unicodedata.normalize("NFKD", title)
+        slug = "".join(c for c in slug if not unicodedata.combining(c))
+        slug = re.sub(r'[^a-zA-Z0-9_\-]', '_', slug)
         slug = re.sub(r'_+', '_', slug).strip('_')
         return slug or "unnamed_book"
 
@@ -56,6 +63,10 @@ class BookLibrary:
 
         # Handle Cover Image Thumbnail
         if cover_image_path and os.path.exists(cover_image_path):
+            # Preserve a extensão original da imagem de capa
+            _, ext = os.path.splitext(cover_image_path)
+            ext = ext.lower().lstrip(".") or "png"
+            dest_cover = os.path.join(book_dir, f"cover.{ext}")
             if os.path.abspath(cover_image_path) != os.path.abspath(dest_cover):
                 shutil.copy2(cover_image_path, dest_cover)
         else:
@@ -219,7 +230,7 @@ class BookLibrary:
                     elif "_for_en" in fname.lower() or "_en" in fname.lower():
                         lang = "en"
 
-                    clean_title = re.sub(r'__for_[a-zA-Z]+', '', base_name)
+                    clean_title = re.sub(r'_for_[a-zA-Z]+$', '', base_name)
                     clean_title = re.sub(r'_[A-Z]{2}$', '', clean_title).replace('_', ' ')
 
                     slug = self.slugify(clean_title)

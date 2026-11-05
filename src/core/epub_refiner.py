@@ -1,5 +1,6 @@
 import os
 import re
+import uuid
 import zipfile
 import shutil
 import logging
@@ -125,6 +126,31 @@ class EpubRefiner:
             oebps_dir = os.path.join(temp_dir, "OEBPS")
             if not os.path.exists(oebps_dir):
                 oebps_dir = temp_dir
+
+            # --- Ler metadados originais do content.opf para preservá-los ---
+            original_title = os.path.splitext(os.path.basename(self.epub_path))[0]
+            original_author = "Autor Desconhecido"
+            original_lang = "pt"
+            original_uid = f"urn:uuid:{uuid.uuid4()}"
+            opf_path_orig = os.path.join(oebps_dir, "content.opf")
+            if os.path.exists(opf_path_orig):
+                try:
+                    with open(opf_path_orig, "r", encoding="utf-8", errors="ignore") as fp:
+                        opf_orig = fp.read()
+                    m_title = re.search(r"<dc:title[^>]*>(.*?)</dc:title>", opf_orig, re.IGNORECASE | re.DOTALL)
+                    m_creator = re.search(r"<dc:creator[^>]*>(.*?)</dc:creator>", opf_orig, re.IGNORECASE | re.DOTALL)
+                    m_lang = re.search(r"<dc:language[^>]*>(.*?)</dc:language>", opf_orig, re.IGNORECASE | re.DOTALL)
+                    m_uid = re.search(r'<dc:identifier[^>]*>(.*?)</dc:identifier>', opf_orig, re.IGNORECASE | re.DOTALL)
+                    if m_title:
+                        original_title = re.sub(r'<[^>]+>', '', m_title.group(1)).strip()
+                    if m_creator:
+                        original_author = re.sub(r'<[^>]+>', '', m_creator.group(1)).strip()
+                    if m_lang:
+                        original_lang = m_lang.group(1).strip()
+                    if m_uid:
+                        original_uid = re.sub(r'<[^>]+>', '', m_uid.group(1)).strip()
+                except Exception:
+                    pass
 
             # 1. Identify all chapter files sorted numerically
             chap_files = [
@@ -319,12 +345,12 @@ class EpubRefiner:
             ncx_html = f"""<?xml version="1.0" encoding="UTF-8"?>
 <ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
     <head>
-        <meta name="dtb:uid" content="urn:uuid:clean-code-refined"/>
+        <meta name="dtb:uid" content="{original_uid}"/>
         <meta name="dtb:depth" content="1"/>
         <meta name="dtb:totalPageCount" content="0"/>
         <meta name="dtb:maxPageNumber" content="0"/>
     </head>
-    <docTitle><text>Código Limpo</text></docTitle>
+    <docTitle><text>{original_title}</text></docTitle>
     <navMap>
 {''.join(navpoints)}
     </navMap>
@@ -362,10 +388,10 @@ class EpubRefiner:
             opf_content = f"""<?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="pub-id">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-    <dc:identifier id="pub-id">urn:uuid:clean-code-refined</dc:identifier>
-    <dc:title>Código Limpo</dc:title>
-    <dc:creator>Robert C. Martin</dc:creator>
-    <dc:language>pt</dc:language>
+    <dc:identifier id="pub-id">{original_uid}</dc:identifier>
+    <dc:title>{original_title}</dc:title>
+    <dc:creator>{original_author}</dc:creator>
+    <dc:language>{original_lang}</dc:language>
   </metadata>
   <manifest>
 {chr(10).join(manifest_items)}
