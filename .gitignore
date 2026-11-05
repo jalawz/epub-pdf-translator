@@ -1,5 +1,11 @@
 # Python
 __pycache__/
+
+# Coverage artifacts
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
 *.py[cod]
 *$py.class
 *.so
