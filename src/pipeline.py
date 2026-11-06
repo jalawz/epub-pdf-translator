@@ -18,6 +18,12 @@ class TranslationPipeline:
 
     TAGS_TO_TRANSLATE = ["h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "blockquote", "td", "th", "figcaption"]
 
+    # Nomes comuns de capítulos de capa (além de "cover")
+    COVER_NAMES = {
+        "cover", "capa", "title_page", "titlepage", "cover-page", "cover_page",
+        "front_cover", "frontcover", "title", "capinha",
+    }
+
     def __init__(
         self,
         epub_path: str,
@@ -47,6 +53,39 @@ class TranslationPipeline:
         os.makedirs(self.assets_dir, exist_ok=True)
         os.makedirs(self.chapters_dir, exist_ok=True)
         os.makedirs(self.pdfs_dir, exist_ok=True)
+
+    def _is_cover_chapter(self, chapter_path: str, chapter_id: str) -> bool:
+        """Detecta se um capítulo é a capa do livro.
+
+        Verifica por:
+        1. Nome do arquivo (cover, capa, title_page, etc.)
+        2. Propriedade 'cover-image' no manifesto do EPUB
+        """
+        # Verificação por nome de arquivo
+        if chapter_id.lower() in self.COVER_NAMES:
+            return True
+
+        # Verificação por propriedades no manifesto (cover-image)
+        manifest = self.parser.manifest
+        for item_id, href in manifest.items():
+            # Normalizar href para comparar com chapter_path
+            item_path = posixpath.normpath(href.lstrip("/\\"))
+            chapter_norm = posixpath.normpath(chapter_path.lstrip("/\\"))
+            if item_path == chapter_norm:
+                # Verificar se o item tem propriedades de cover-image
+                # Re-ler o OPF para verificar properties
+                opf_data = self.parser.zip_ref.read(self.parser.opf_path)
+                from lxml import etree
+                tree = etree.fromstring(opf_data)
+                ns = {"opf": "http://www.idpf.org/2007/opf"}
+                for item in tree.xpath("//opf:item", namespaces=ns):
+                    if item.get("id") == item_id:
+                        props = item.get("properties", "") or ""
+                        if "cover-image" in props:
+                            return True
+                break
+
+        return False
 
     def _translate_chapter_content(self, raw_html: str, chapter_zip_path: str) -> str:
         """Parse, shield, and translate the text nodes of a chapter."""
@@ -227,7 +266,7 @@ class TranslationPipeline:
                 with open(cached_html_file, "r", encoding="utf-8") as f:
                     chapter_html = f.read()
 
-                is_cover = (chapter_id.lower() == "cover")
+                is_cover = self._is_cover_chapter(chapter_path, chapter_id)
                 if force_recompile or not os.path.exists(cached_pdf_file):
                     # Clean code blocks and apply print styles
                     chapter_html = re.sub(r'<pre[^>]*>.*?</pre>', fix_pre, chapter_html, flags=re.DOTALL)
@@ -249,7 +288,7 @@ class TranslationPipeline:
             translated_html = re.sub(r'<pre[^>]*>.*?</pre>', fix_pre, translated_html, flags=re.DOTALL)
 
             # Inject printable style
-            is_cover = (chapter_id.lower() == "cover")
+            is_cover = self._is_cover_chapter(chapter_path, chapter_id)
             printable_html = self.renderer.inject_print_style(translated_html, is_cover=is_cover)
             with open(cached_html_file, "w", encoding="utf-8", newline="\n") as f:
                 f.write(printable_html)
