@@ -101,7 +101,7 @@ class TestQALibraryRendering:
     """render_books_grid_html injetam dados do usuário no HTML sem escape."""
 
     def test_book_with_title_containing_quote_breaks_html(self, tmp_path):
-        """Título com aspas duplas pode quebrar o atributo title="" do <h3>."""
+        """CORREÇÃO QA-2/S1: Título com aspas deve ser ESCAPADO, não quebrar o HTML."""
         books = [
             {
                 "title": 'Livro "com" aspas',
@@ -121,12 +121,16 @@ class TestQALibraryRendering:
             }
         ]
         html = app.render_books_grid_html(books)
+        # Aspas devem estar escapadas como &quot;
+        assert "&quot;com&quot;" in html
+        # Não deve haver aspas duplas não escapadas quebrando o atributo title
+        assert 'title="Livro "' not in html
         assert "Livro" in html
         assert "com" in html
         assert "aspas" in html
 
     def test_book_with_title_containing_angle_brackets(self, tmp_path):
-        """Título com <script> pode ser injetado como HTML (XSS potencial)."""
+        """CORREÇÃO QA-2/S1: Título com <script> deve ser ESCAPADO, não injetado bruto."""
         books = [
             {
                 "title": "<script>alert('xss')</script>",
@@ -146,11 +150,15 @@ class TestQALibraryRendering:
             }
         ]
         html = app.render_books_grid_html(books)
-        # O script aparece injetado bruto - ponto de atenção de segurança
-        assert "<script>" in html or "alert" in html
+        # O script deve estar ESCAPADO, não bruto
+        assert "&lt;script&gt;" in html
+        assert "&lt;script&gt;alert(&#x27;xss&#x27;)&lt;/script&gt;" in html
+        # Não deve aparecer bruto (sem escape)
+        assert "<script>" not in html
+        assert "</script>" not in html
 
     def test_book_with_path_containing_quote(self, tmp_path):
-        """Caminho com aspas injetado em onclick/href pode quebrar JS."""
+        """CORREÇÃO QA-2/S2: Caminho com aspas deve ser ESCAPADO em href/onclick."""
         books = [
             {
                 "title": "Título",
@@ -170,7 +178,12 @@ class TestQALibraryRendering:
             }
         ]
         html = app.render_books_grid_html(books)
-        assert 'a"b.pdf' in html or 'a%22b.pdf' in html
+        # Aspas no caminho devem estar escapadas como &quot;
+        assert '&quot;' in html
+        # O nome do arquivo deve aparecer (com aspas escapadas)
+        assert "a" in html and "b.pdf" in html
+        # As aspas duplas não devem aparecer não-escapadas quebrando o href
+        assert 'href="/gradio_api/file=' not in html or '&quot;' in html
 
     def test_book_missing_optional_keys_does_not_crash(self, tmp_path):
         """Livro sem chaves opcionais não deve levantar KeyError."""

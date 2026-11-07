@@ -7,6 +7,7 @@ import io
 import time
 import urllib.parse
 import subprocess
+import html as pyhtml
 from pathlib import Path
 from PIL import Image
 import gradio as gr
@@ -98,6 +99,16 @@ def open_folder_desktop(target_path: str) -> str:
     except Exception as e:
         return f"❌ Erro ao abrir pasta: {str(e)}"
 
+def _html_escape(text: str) -> str:
+    """Escapa caracteres HTML (&, <, >, ", ') para prevenir XSS.
+
+    Aplica-se a conteúdo de elementos e a atributos HTML (quote=True).
+    """
+    if text is None:
+        return ""
+    return pyhtml.escape(str(text), quote=True)
+
+
 def render_books_grid_html(books):
     if not books:
         return """
@@ -133,7 +144,8 @@ def render_books_grid_html(books):
         else:
             img_tag = '<div style="font-size: 3.5rem; color: #94a3b8;">📖</div>'
 
-        lang_badge = flag_map.get(b.get("lang", "").lower(), f"🌐 {b.get('lang', '').upper()}")
+        lang_value = b.get("lang", "")
+        lang_badge = flag_map.get(lang_value.lower(), f"🌐 {_html_escape(lang_value.upper())}")
         pages_count = b.get("pages", 0) or 0
         pages_display = (
             f"{pages_count:,}" if isinstance(pages_count, (int, float)) else "—"
@@ -158,9 +170,13 @@ def render_books_grid_html(books):
             cat_badge_text = "📷 Digitalizado (OCR)"
         else:
             cat_badge_class = "card-badge-trans"
-            src_l = b.get("source_lang", "EN").upper()
-            tgt_l = b.get("lang", "PT").upper()
+            src_l = _html_escape(b.get("source_lang", "EN").upper())
+            tgt_l = _html_escape(b.get("lang", "PT").upper())
             cat_badge_text = f"🌐 Traduzido ({src_l} ➔ {tgt_l})"
+
+        # Variáveis seguras para uso em strings JS (onclick) — escapa aspas simples
+        pdf_path_js = pdf_path_url.replace("'", "\\'")
+        epub_path_js = epub_path_url.replace("'", "\\'")
 
         card = f"""
         <div class="library-card">
@@ -178,36 +194,36 @@ def render_books_grid_html(books):
             </div>
             <div class="card-content">
                 <div>
-                    <h3 class="card-title" title="{b.get('title', 'Sem título')}">
-                        {b.get('title', 'Sem título')}
+                    <h3 class="card-title" title="{_html_escape(b.get('title', 'Sem título'))}">
+                        {_html_escape(b.get('title', 'Sem título'))}
                     </h3>
                     <p class="card-author">
-                        ✍️ {b.get('author', 'Autor Desconhecido')}
+                        ✍️ {_html_escape(b.get('author', 'Autor Desconhecido'))}
                     </p>
                 </div>
                 <div>
                     <div class="card-meta-bar">
                         <span class="card-pages-text">📄 <b>{pages_display}</b> páginas</span>
-                        <span class="card-date-text">🗓️ {date_formatted}</span>
+                        <span class="card-date-text">🗓️ {_html_escape(date_formatted)}</span>
                     </div>
                     <div class="card-btn-grid">
-                        <button class="card-btn card-btn-pdf" onclick="fetch('/api/open-file?path=' + encodeURIComponent('{pdf_path_url}')).catch(console.error); return false;" title="Abrir PDF no aplicativo padrão do Windows">
+                        <button class="card-btn card-btn-pdf" onclick="fetch('/api/open-file?path=' + encodeURIComponent('{pdf_path_js}')).catch(console.error); return false;" title="Abrir PDF no aplicativo padrão do Windows">
                             <span>📄 Abrir PDF</span>
                             <span class="card-btn-sub">({pdf_size} MB)</span>
                         </button>
-                        <button class="card-btn card-btn-epub" onclick="fetch('/api/open-file?path=' + encodeURIComponent('{epub_path_url}')).catch(console.error); return false;" title="Abrir EPUB no aplicativo padrão do Windows">
+                        <button class="card-btn card-btn-epub" onclick="fetch('/api/open-file?path=' + encodeURIComponent('{epub_path_js}')).catch(console.error); return false;" title="Abrir EPUB no aplicativo padrão do Windows">
                             <span>📱 Abrir EPUB</span>
                             <span class="card-btn-sub">({epub_size} MB)</span>
                         </button>
                     </div>
                     <div class="card-actions-sub">
-                        <button class="card-sub-btn" onclick="fetch('/api/open-folder?path=' + encodeURIComponent('{pdf_path_url}')).catch(console.error); return false;" title="Abrir pasta no Windows Explorer">
+                        <button class="card-sub-btn" onclick="fetch('/api/open-folder?path=' + encodeURIComponent('{pdf_path_js}')).catch(console.error); return false;" title="Abrir pasta no Windows Explorer">
                             📂 Abrir Pasta
                         </button>
-                        <a href="/gradio_api/file={pdf_path_url}" target="_blank" download="{pdf_filename}" class="card-sub-link" title="Baixar arquivo PDF">
+                        <a href="/gradio_api/file={_html_escape(pdf_path_url)}" target="_blank" download="{_html_escape(pdf_filename)}" class="card-sub-link" title="Baixar arquivo PDF">
                             ⬇️ PDF
                         </a>
-                        <a href="/gradio_api/file={epub_path_url}" target="_blank" download="{epub_filename}" class="card-sub-link" title="Baixar arquivo EPUB">
+                        <a href="/gradio_api/file={_html_escape(epub_path_url)}" target="_blank" download="{_html_escape(epub_filename)}" class="card-sub-link" title="Baixar arquivo EPUB">
                             ⬇️ EPUB
                         </a>
                     </div>
