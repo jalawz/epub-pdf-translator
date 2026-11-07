@@ -10,6 +10,13 @@ from lxml import html as h
 
 logger = logging.getLogger(__name__)
 
+
+def _xml_escape(text: str) -> str:
+    """Escapa caracteres reservados XML (&, <, >) em texto de conteúdo."""
+    if text is None:
+        return ""
+    return pyhtml.escape(str(text), quote=False)
+
 PROSE_STOPWORDS = {
     'de', 'a', 'o', 'que', 'e', 'do', 'da', 'em', 'um', 'para', 'com', 'nao', 'não',
     'uma', 'os', 'no', 'se', 'na', 'por', 'mais', 'as', 'dos', 'como', 'mas', 'foi',
@@ -128,10 +135,10 @@ class EpubRefiner:
                 oebps_dir = temp_dir
 
             # --- Ler metadados originais do content.opf para preservá-los ---
-            original_title = os.path.splitext(os.path.basename(self.epub_path))[0]
-            original_author = "Autor Desconhecido"
-            original_lang = "pt"
-            original_uid = f"urn:uuid:{uuid.uuid4()}"
+            original_title = _xml_escape(os.path.splitext(os.path.basename(self.epub_path))[0])
+            original_author = _xml_escape("Autor Desconhecido")
+            original_lang = _xml_escape("pt")
+            original_uid = _xml_escape(f"urn:uuid:{uuid.uuid4()}")
             opf_path_orig = os.path.join(oebps_dir, "content.opf")
             if os.path.exists(opf_path_orig):
                 try:
@@ -142,13 +149,13 @@ class EpubRefiner:
                     m_lang = re.search(r"<dc:language[^>]*>(.*?)</dc:language>", opf_orig, re.IGNORECASE | re.DOTALL)
                     m_uid = re.search(r'<dc:identifier[^>]*>(.*?)</dc:identifier>', opf_orig, re.IGNORECASE | re.DOTALL)
                     if m_title:
-                        original_title = re.sub(r'<[^>]+>', '', m_title.group(1)).strip()
+                        original_title = _xml_escape(re.sub(r'<[^>]+>', '', m_title.group(1)).strip())
                     if m_creator:
-                        original_author = re.sub(r'<[^>]+>', '', m_creator.group(1)).strip()
+                        original_author = _xml_escape(re.sub(r'<[^>]+>', '', m_creator.group(1)).strip())
                     if m_lang:
-                        original_lang = m_lang.group(1).strip()
+                        original_lang = _xml_escape(m_lang.group(1).strip())
                     if m_uid:
-                        original_uid = re.sub(r'<[^>]+>', '', m_uid.group(1)).strip()
+                        original_uid = _xml_escape(re.sub(r'<[^>]+>', '', m_uid.group(1)).strip())
                 except Exception:
                     pass
 

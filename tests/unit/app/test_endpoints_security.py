@@ -1,136 +1,125 @@
-"""Testes de segurança para os endpoints /api/open-file e /api/open-folder do app.py."""
+"""Testes de segurança para os endpoints /api/open-file e /api/open-folder do app.py.
+
+Testa os handlers reais expostos no escopo do módulo (_api_open_file_handler,
+_api_open_folder_handler), incluindo validação de contenção de caminho
+(OUTPUT_DIR) e prevenção de path traversal.
+"""
 
 import os
 import sys
-import tempfile
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 import pytest
 
-# Adiciona o diretório raiz ao path para importar app
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 import app  # noqa: E402
 
 
 class TestOpenFileEndpoint:
-    def test_opens_existing_file(self, tmp_path):
-        """Endpoint deve abrir arquivo existente e retornar sucesso."""
-        # Cria arquivo temporário real
-        test_file = tmp_path / "teste.txt"
+    """Testa o handler _api_open_file_handler."""
+
+    def test_opens_existing_file(self):
+        """Arquivo existente dentro do OUTPUT_DIR deve retornar sucesso."""
+        test_file = Path(app.OUTPUT_DIR) / "teste_endpoint.txt"
         test_file.write_text("conteudo de teste")
+        try:
+            with patch("app.os.path.exists", return_value=True), \
+                 patch("app.os.startfile") as mock_startfile:
+                result = app._api_open_file_handler(str(test_file))
+                assert result.status_code == 200
+                mock_startfile.assert_called_once_with(str(test_file))
+        finally:
+            test_file.unlink(missing_ok=True)
 
-        with patch("app.os.path.normpath", side_effect=os.path.normpath):
-            with patch("app.os.path.exists", return_value=True):
-                with patch("app.os.startfile") as mock_startfile:
-                    # Simula a função da rota
-                    path = str(test_file)
-                    norm = os.path.normpath(path)
-                    if os.path.exists(norm):
-                        os.startfile(norm)
-                        result = {"status": "success", "opened": norm}
-                    else:
-                        result = {"status": "error"}
+    def test_returns_404_for_nonexistent_file(self):
+        """Arquivo inexistente deve retornar 404."""
+        with patch("app.os.path.exists", return_value=False):
+            nonexistent = str(Path(app.OUTPUT_DIR) / "nao_existe.txt")
+            result = app._api_open_file_handler(nonexistent)
+            assert result.status_code == 404
 
-                    assert result["status"] == "success"
-                    mock_startfile.assert_called_once_with(norm)
-
-    def test_returns_404_for_nonexistent_file(self, tmp_path):
-        """Endpoint deve retornar 404 para arquivo que não existe."""
-        nonexistent = tmp_path / "nao_existe.txt"
-
-        with patch("app.os.path.normpath", side_effect=os.path.normpath):
-            with patch("app.os.path.exists", return_value=False):
-                path = str(nonexistent)
-                norm = os.path.normpath(path)
-                if os.path.exists(norm):
-                    result = {"status": "success"}
-                else:
-                    result = {"status": "error", "message": f"Arquivo não encontrado: {norm}"}
-
-                assert result["status"] == "error"
-                assert "não encontrado" in result["message"]
-
-    def test_rejects_path_traversal(self, tmp_path):
-        """Endpoint deve rejeitar tentativas de traversal (../../)."""
-        # Simula a validação que deve existir
+    def test_rejects_path_traversal(self):
+        """Tentativas de path traversal devem ser rejeitadas com 403."""
         dangerous_paths = [
             "../../../etc/passwd",
             "..\\..\\windows\\system32\\config\\sam",
             "/etc/shadow",
-            "C:\\Windows\\System32\\config\\SAM",
         ]
-
-        allowed_base = str(tmp_path)
-
         for dangerous in dangerous_paths:
-            norm = os.path.normpath(dangerous)
-            # Verifica se o caminho normalizado escapa do diretório permitido
-            # (simples verificação de que não começa com ".." ou é absoluto fora do base)
-            is_safe = not norm.startswith("..") and not os.path.isabs(norm)
-            assert not is_safe, f"Caminho perigoso não detectado: {dangerous}"
+            result = app._api_open_file_handler(dangerous)
+            assert result.status_code == 403, f"Caminho perigoso não bloqueado: {dangerous}"
+
+    def test_absolute_path_outside_output_is_rejected(self):
+        """Caminho absoluto fora de OUTPUT_DIR deve ser rejeitado."""
+        result = app._api_open_file_handler("/etc/passwd")
+        assert result.status_code == 403
+
+    def test_returns_500_on_exception(self):
+        """Exceção inesperada deve retornar 500."""
+        with patch("app.os.path.exists", side_effect=Exception("erro inesperado")):
+            result = app._api_open_file_handler(str(Path(app.OUTPUT_DIR) / "qualquer.txt"))
+            assert result.status_code == 500
 
 
 class TestOpenFolderEndpoint:
-    def test_opens_existing_folder(self, tmp_path):
-        """Endpoint deve abrir pasta existente."""
-        test_folder = tmp_path / "minha_pasta"
-        test_folder.mkdir()
+    """Testa o handler _api_open_folder_handler."""
 
-        with patch("app.os.path.normpath", side_effect=os.path.normpath):
-            with patch("app.os.path.exists", return_value=True):
-                with patch("app.os.path.isdir", return_value=True):
-                    with patch("app.os.startfile") as mock_startfile:
-                        path = str(test_folder)
-                        norm = os.path.normpath(path)
-                        if os.path.exists(norm):
-                            if os.path.isdir(norm):
-                                os.startfile(norm)
-                                result = {"status": "success", "folder": norm}
-                            else:
-                                result = {"status": "error"}
+    def test_opens_existing_folder(self):
+        """Pasta existente dentro do OUTPUT_DIR deve retornar sucesso."""
+        test_folder = Path(app.OUTPUT_DIR) / "pasta_endpoint"
+        test_folder.mkdir(exist_ok=True)
+        try:
+            with patch("app.os.path.exists", return_value=True), \
+                 patch("app.os.path.isdir", return_value=True), \
+                 patch("app.os.startfile") as mock_startfile:
+                result = app._api_open_folder_handler(str(test_folder))
+                assert result.status_code == 200
+                mock_startfile.assert_called_once_with(str(test_folder))
+        finally:
+            test_folder.rmdir()
 
-                        assert result["status"] == "success"
-                        mock_startfile.assert_called_once_with(norm)
+    def test_returns_404_for_nonexistent_folder(self):
+        """Pasta inexistente dentro do OUTPUT_DIR deve retornar 404."""
+        nonexistent = str(Path(app.OUTPUT_DIR) / "nao_existe")
+        with patch("app.os.path.exists", return_value=False):
+            result = app._api_open_folder_handler(nonexistent)
+            assert result.status_code == 404
 
-    def test_returns_404_for_nonexistent_folder(self, tmp_path):
-        """Endpoint deve retornar 404 para pasta que não existe."""
-        nonexistent = tmp_path / "nao_existe"
-
-        with patch("app.os.path.normpath", side_effect=os.path.normpath):
-            with patch("app.os.path.exists", return_value=False):
-                path = str(nonexistent)
-                norm = os.path.normpath(path)
-                if os.path.exists(norm):
-                    result = {"status": "success"}
-                else:
-                    result = {"status": "error", "message": f"Caminho não encontrado: {norm}"}
-
-                assert result["status"] == "error"
-                assert "não encontrado" in result["message"]
+    def test_rejects_path_traversal(self):
+        """Tentativas de path traversal em pasta devem ser rejeitadas com 403."""
+        dangerous_paths = [
+            "../../../etc/passwd",
+            "..\\..\\windows\\system32",
+        ]
+        for dangerous in dangerous_paths:
+            result = app._api_open_folder_handler(dangerous)
+            assert result.status_code == 403, f"Caminho perigoso não bloqueado: {dangerous}"
 
 
-class TestPathTraversalPrevention:
-    """Testes dedicados à prevenção de path traversal nos endpoints."""
+class TestIsSafePath:
+    """Testes dedicados à função _is_safe_path."""
 
-    def test_normalize_removes_double_slashes(self):
-        """Caminhos com // devem ser normalizados."""
-        path = "///tmp///teste///arquivo.txt"
-        norm = os.path.normpath(path)
-        assert "//" not in norm
+    def test_same_directory_is_safe(self, tmp_path):
+        """Caminho dentro do diretório base é seguro."""
+        base = str(tmp_path)
+        target = str(tmp_path / "sub" / "arquivo.txt")
+        assert app._is_safe_path(target, base) is True
 
-    def test_absolute_paths_outside_output_are_flagged(self, tmp_path):
-        """Caminhos absolutos fora do diretório permitido devem ser rejeitados."""
-        base = str(tmp_path / "output")
-        dangerous = "/etc/passwd"
+    def test_traversal_outside_base_is_unsafe(self):
+        """../ para fora do base é inseguro."""
+        assert app._is_safe_path("../../../etc/passwd", "/tmp/output") is False
 
-        norm = os.path.normpath(dangerous)
-        is_within_base = norm.startswith(os.path.normpath(base))
-        assert not is_within_base
+    def test_absolute_outside_base_is_unsafe(self):
+        """Caminho absoluto fora do base é inseguro."""
+        assert app._is_safe_path("/etc/passwd", "/tmp/output") is False
 
-    def test_relative_traversal_is_rejected(self):
-        """../ deve ser rejeitado."""
-        dangerous = "../../etc/passwd"
-        norm = os.path.normpath(dangerous)
-        assert norm.startswith("..")
+    def test_base_itself_is_safe(self, tmp_path):
+        """O próprio diretório base é seguro."""
+        base = str(tmp_path)
+        assert app._is_safe_path(base, base) is True
+
+    def test_none_path_is_unsafe(self):
+        """Caminho None deve ser tratado como inseguro."""
+        assert app._is_safe_path(None, "/tmp/output") is False

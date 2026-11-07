@@ -95,7 +95,7 @@ class BookLibrary:
             "quality_certified": metadata.get("quality_certified", True),
             "pdf_path": dest_pdf,
             "epub_path": dest_epub,
-            "cover_path": dest_cover if os.path.exists(dest_cover) else None
+            "cover_path": dest_cover
         }
 
         with open(dest_meta, "w", encoding="utf-8") as f:
@@ -137,8 +137,7 @@ class BookLibrary:
                         data["book_dir"] = book_dir
                         data["pdf_path"] = self._resolve_book_file(book_dir, "pdf", slug, lang_code)
                         data["epub_path"] = self._resolve_book_file(book_dir, "epub", slug, lang_code)
-                        cover_candidate = os.path.join(book_dir, "cover.png")
-                        data["cover_path"] = cover_candidate if os.path.exists(cover_candidate) else None
+                        data["cover_path"] = self._resolve_cover_file(book_dir)
                         
                         b_cat = data.get("category")
                         if not b_cat:
@@ -187,8 +186,7 @@ class BookLibrary:
             data["book_dir"] = book_dir
             data["pdf_path"] = self._resolve_book_file(book_dir, "pdf", slug, lang_code)
             data["epub_path"] = self._resolve_book_file(book_dir, "epub", slug, lang_code)
-            cover_candidate = os.path.join(book_dir, "cover.png")
-            data["cover_path"] = cover_candidate if os.path.exists(cover_candidate) else None
+            data["cover_path"] = self._resolve_cover_file(book_dir)
             return data
         return None
 
@@ -199,6 +197,14 @@ class BookLibrary:
             shutil.rmtree(book_dir, ignore_errors=True)
             return True
         return False
+
+    def _resolve_cover_file(self, book_dir: str) -> str:
+        """Resolve o caminho da capa tentando múltiplas extensões (.png, .jpg, .jpeg, .webp)."""
+        for ext in ("png", "jpg", "jpeg", "webp"):
+            candidate = os.path.join(book_dir, f"cover.{ext}")
+            if os.path.exists(candidate):
+                return candidate
+        return None
 
     def scan_and_migrate_legacy(self) -> List[Dict]:
         """Automatically detect legacy translated books in output/ and register them in the library."""

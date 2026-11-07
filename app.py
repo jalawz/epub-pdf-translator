@@ -7,6 +7,7 @@ import io
 import time
 import urllib.parse
 import subprocess
+from pathlib import Path
 from PIL import Image
 import gradio as gr
 from starlette.middleware import Middleware
@@ -341,7 +342,7 @@ def delete_book_from_library(selected_label, current_lang, current_cat):
         lib.delete_book(lang=lang_code, slug=slug)
     except Exception as e:
         grid, choices, info, _ = update_library_view(current_lang, current_cat)
-        return f"❌ Erro ao remover: {e}", grid, choices, info
+        return grid, choices, info, f"❌ Erro ao remover: {e}"
     return update_library_view(current_lang, current_cat)
 
 def translate_book(
@@ -1021,6 +1022,49 @@ with gr.Blocks(title="epub-pdf-translator", css=custom_css, theme=gr.themes.Soft
         outputs=[books_grid, book_dropdown, selected_info, desktop_feedback]
     )
 
+
+def _is_safe_path(target: str, base_dir: str) -> bool:
+    """Verifica se o caminho resolvido está confinado dentro do diretório base."""
+    try:
+        target_resolved = Path(target).resolve()
+        base_resolved = Path(base_dir).resolve()
+        return base_resolved in target_resolved.parents or target_resolved == base_resolved
+    except Exception:
+        return False
+
+
+def _api_open_file_handler(path: str):
+    """Handler da rota /api/open-file."""
+    try:
+        decoded = urllib.parse.unquote(path)
+        norm = os.path.normpath(decoded)
+        if not _is_safe_path(norm, OUTPUT_DIR):
+            return JSONResponse({"status": "error", "message": "Caminho fora do diretório permitido."}, status_code=403)
+        if os.path.exists(norm):
+            os.startfile(norm)
+            return JSONResponse({"status": "success", "opened": norm})
+        return JSONResponse({"status": "error", "message": f"Arquivo não encontrado: {norm}"}, status_code=404)
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
+def _api_open_folder_handler(path: str):
+    """Handler da rota /api/open-folder."""
+    try:
+        decoded = urllib.parse.unquote(path)
+        norm = os.path.normpath(decoded)
+        if not _is_safe_path(norm, OUTPUT_DIR):
+            return JSONResponse({"status": "error", "message": "Caminho fora do diretório permitido."}, status_code=403)
+        if os.path.exists(norm):
+            if os.path.isdir(norm):
+                os.startfile(norm)
+            else:
+                subprocess.Popen(["explorer", f"/select,{norm}"])
+            return JSONResponse({"status": "success", "folder": norm})
+        return JSONResponse({"status": "error", "message": f"Caminho não encontrado: {norm}"}, status_code=404)
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
 if __name__ == "__main__":
     demo.queue()
     app, local_url, _ = demo.launch(
@@ -1030,31 +1074,7 @@ if __name__ == "__main__":
         app_kwargs={"middleware": [Middleware(CleanPathMiddleware)]}
     )
 
-    @app.get("/api/open-file")
-    async def api_open_file(path: str):
-        try:
-            decoded = urllib.parse.unquote(path)
-            norm = os.path.normpath(decoded)
-            if os.path.exists(norm):
-                os.startfile(norm)
-                return JSONResponse({"status": "success", "opened": norm})
-            return JSONResponse({"status": "error", "message": f"Arquivo não encontrado: {norm}"}, status_code=404)
-        except Exception as e:
-            return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
-
-    @app.get("/api/open-folder")
-    async def api_open_folder(path: str):
-        try:
-            decoded = urllib.parse.unquote(path)
-            norm = os.path.normpath(decoded)
-            if os.path.exists(norm):
-                if os.path.isdir(norm):
-                    os.startfile(norm)
-                else:
-                    subprocess.Popen(["explorer", f"/select,{norm}"])
-                return JSONResponse({"status": "success", "folder": norm})
-            return JSONResponse({"status": "error", "message": f"Caminho não encontrado: {norm}"}, status_code=404)
-        except Exception as e:
-            return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+    app.get("/api/open-file")(_api_open_file_handler)
+    app.get("/api/open-folder")(_api_open_folder_handler)
 
     demo.block_thread()

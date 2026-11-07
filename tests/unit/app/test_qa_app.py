@@ -367,8 +367,8 @@ class TestQAActions:
         with patch.object(app.BookLibrary, "get_book", return_value={"title": "T", "slug": "s"}):
             with patch.object(app.BookLibrary, "delete_book", side_effect=Exception("banco travado")):
                 result = app.delete_book_from_library("[PT] T | slug:s", "Todos", "Todos")
-                # Deve retornar mensagem de erro, não levantar exceção
-                assert "Erro ao remover" in result[0]
+                # Deve retornar mensagem de erro no índice 3 (desktop_feedback)
+                assert "Erro ao remover" in result[3]
 
 
 # ============================================================================
