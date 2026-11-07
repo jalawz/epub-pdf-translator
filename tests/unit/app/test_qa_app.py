@@ -183,8 +183,8 @@ class TestQALibraryRendering:
         html = app.render_books_grid_html(books)
         assert "Mínimo" in html
 
-    def test_book_with_none_pages_crashes_format(self, tmp_path):
-        """BUG REAL: pages=None levanta TypeError em {pages_count:,} (linha 186)."""
+    def test_book_with_none_pages_does_not_crash(self, tmp_path):
+        """CORREÇÃO C1: pages=None não deve mais causar TypeError; exibe '—'."""
         books = [
             {
                 "title": "None Pages",
@@ -203,11 +203,13 @@ class TestQALibraryRendering:
                 "cover_path": None,
             }
         ]
-        with pytest.raises(TypeError, match="unsupported format string"):
-            app.render_books_grid_html(books)
+        html = app.render_books_grid_html(books)
+        # Não deve crashar; páginas None vira 0 (valor seguro)
+        assert "None Pages" in html
+        assert "<b>0</b> páginas" in html
 
-    def test_book_with_none_numeric_fields_shows_none(self, tmp_path):
-        """pdf_size_mb/epub_size_mb None mostra 'None MB' (não crasha, mas UX ruim)."""
+    def test_book_with_none_numeric_fields_shows_zero(self, tmp_path):
+        """CORREÇÃO C1/C6: pdf_size_mb/epub_size_mb None mostra '0 MB' não 'None MB'."""
         books = [
             {
                 "title": "None Values",
@@ -228,7 +230,7 @@ class TestQALibraryRendering:
         ]
         html = app.render_books_grid_html(books)
         assert "None Values" in html
-        assert "None MB" in html  # exibido literalmente na UI
+        assert "0 MB" in html  # valor seguro em vez de "None MB" literal
 
 
 # ============================================================================
@@ -236,21 +238,23 @@ class TestQALibraryRendering:
 # ============================================================================
 
 class TestQAUpdateLibraryView:
-    def test_book_without_lang_key_raises_keyerror(self, tmp_path):
-        """choices usa b['lang'] com colchetes - KeyError se faltar (linha 233)."""
+    def test_book_without_lang_key_does_not_raise(self, tmp_path):
+        """CORREÇÃO C2: b.get('lang', '?') evita KeyError."""
         with patch.object(app.BookLibrary, "list_books", return_value=[{"title": "Sem Lang", "slug": "x"}]):
-            with pytest.raises(KeyError):
-                app.update_library_view("Todos", "Todos")
+            grid, choices_update, info, feedback = app.update_library_view("Todos", "Todos")
+            assert "Sem Lang" in grid
 
-    def test_book_without_title_key_raises_keyerror(self, tmp_path):
+    def test_book_without_title_key_does_not_raise(self, tmp_path):
+        """CORREÇÃO C2: b.get('title', 'Sem título') evita KeyError."""
         with patch.object(app.BookLibrary, "list_books", return_value=[{"lang": "pt", "slug": "x"}]):
-            with pytest.raises(KeyError):
-                app.update_library_view("Todos", "Todos")
+            grid, choices_update, info, feedback = app.update_library_view("Todos", "Todos")
+            assert "Sem título" in grid
 
-    def test_book_without_slug_key_raises_keyerror(self, tmp_path):
+    def test_book_without_slug_key_does_not_raise(self, tmp_path):
+        """CORREÇÃO C2: b.get('slug', '') evita KeyError."""
         with patch.object(app.BookLibrary, "list_books", return_value=[{"lang": "pt", "title": "T"}]):
-            with pytest.raises(KeyError):
-                app.update_library_view("Todos", "Todos")
+            grid, choices_update, info, feedback = app.update_library_view("Todos", "Todos")
+            assert "T" in grid
 
     def test_pdf_size_mb_none_shows_none(self, tmp_path):
         """pdf_size_mb ausente mostra 'None MB' na UI."""
@@ -358,12 +362,13 @@ class TestQAActions:
             # target = None -> open_folder_desktop(None) -> "não encontrado"
             assert "não encontrado" in result.lower()
 
-    def test_delete_book_exception_not_caught(self, tmp_path):
-        """delete_book_from_library não trata exceção de delete_book."""
+    def test_delete_book_exception_is_caught(self, tmp_path):
+        """CORREÇÃO C5: exceção de delete_book é capturada, não propaga."""
         with patch.object(app.BookLibrary, "get_book", return_value={"title": "T", "slug": "s"}):
             with patch.object(app.BookLibrary, "delete_book", side_effect=Exception("banco travado")):
-                with pytest.raises(Exception, match="banco travado"):
-                    app.delete_book_from_library("[PT] T | slug:s", "Todos", "Todos")
+                result = app.delete_book_from_library("[PT] T | slug:s", "Todos", "Todos")
+                # Deve retornar mensagem de erro, não levantar exceção
+                assert "Erro ao remover" in result[0]
 
 
 # ============================================================================
@@ -420,8 +425,8 @@ class TestQATranslateBookFields:
 # ============================================================================
 
 class TestQAConvertScannedPdf:
-    def test_stats_missing_chapters_created_keyerror(self, tmp_path):
-        """stats['chapters_created'] com colchetes - KeyError se faltar (linha 426)."""
+    def test_stats_missing_chapters_created_does_not_raise(self, tmp_path):
+        """CORREÇÃO C3: stats.get('chapters_created', 0) evita KeyError."""
         pdf = tmp_path / "scan.pdf"
         pdf.write_bytes(b"fake")
 
@@ -431,13 +436,14 @@ class TestQAConvertScannedPdf:
             mock_pipeline_class.return_value = mock_pipeline
 
             with patch("app.update_library_view", return_value=("<html>", gr.update(), "", "")):
-                with pytest.raises(KeyError, match="chapters_created"):
-                    app.convert_scanned_pdf(
-                        _DummyFile(str(pdf)), "T", "A", "pt",
-                    )
+                result = app.convert_scanned_pdf(
+                    _DummyFile(str(pdf)), "T", "A", "pt",
+                )
+                # Não deve levantar KeyError; chapters_created mostra 0
+                assert "0" in result[1]
 
-    def test_stats_missing_epub_size_mb_keyerror(self, tmp_path):
-        """stats['epub_size_mb'] com colchetes - KeyError se faltar (linha 428)."""
+    def test_stats_missing_epub_size_mb_does_not_raise(self, tmp_path):
+        """CORREÇÃO C3: stats.get('epub_size_mb', 0) evita KeyError."""
         pdf = tmp_path / "scan.pdf"
         pdf.write_bytes(b"fake")
 
@@ -450,8 +456,9 @@ class TestQAConvertScannedPdf:
             mock_pipeline_class.return_value = mock_pipeline
 
             with patch("app.update_library_view", return_value=("<html>", gr.update(), "", "")):
-                with pytest.raises(KeyError, match="epub_size_mb"):
-                    app.convert_scanned_pdf(_DummyFile(str(pdf)), "T", "A", "pt")
+                result = app.convert_scanned_pdf(_DummyFile(str(pdf)), "T", "A", "pt")
+                # Não deve levantar KeyError; epub_size_mb mostra 0
+                assert "0 MB" in result[1]
 
 
 # ============================================================================
@@ -459,28 +466,28 @@ class TestQAConvertScannedPdf:
 # ============================================================================
 
 class TestQAConvertPdfToEpub:
-    def test_stats_missing_title_keyerror(self, tmp_path):
-        """stats['title'] com colchetes - KeyError se faltar (linha 481)."""
+    def test_stats_missing_title_does_not_raise(self, tmp_path):
+        """CORREÇÃO C4: stats.get('title', ...) evita KeyError."""
         pdf = tmp_path / "doc.pdf"
         pdf.write_bytes(b"fake")
 
         with patch("app.FormatConverter.pdf_to_epub") as mock_conv:
             mock_conv.return_value = (str(tmp_path / "out.epub"), {"total_pages": 1})
-            with pytest.raises(KeyError, match="title"):
-                app.convert_pdf_to_epub_flow(_DummyFile(str(pdf)), "T", "A", "pt")
+            result = app.convert_pdf_to_epub_flow(_DummyFile(str(pdf)), "T", "A", "pt")
+            assert "Título desconhecido" in result[1]
 
-    def test_stats_missing_chapters_created_keyerror(self, tmp_path):
-        """stats['chapters_created'] com colchetes - KeyError se faltar (linha 484)."""
+    def test_stats_missing_chapters_created_does_not_raise(self, tmp_path):
+        """CORREÇÃO C4: stats.get('chapters_created', 0) evita KeyError."""
         pdf = tmp_path / "doc.pdf"
         pdf.write_bytes(b"fake")
 
         with patch("app.FormatConverter.pdf_to_epub") as mock_conv:
             mock_conv.return_value = (str(tmp_path / "out.epub"), {"title": "T", "total_pages": 1})
-            with pytest.raises(KeyError, match="chapters_created"):
-                app.convert_pdf_to_epub_flow(_DummyFile(str(pdf)), "T", "A", "pt")
+            result = app.convert_pdf_to_epub_flow(_DummyFile(str(pdf)), "T", "A", "pt")
+            assert "0" in result[1]
 
-    def test_stats_missing_epub_size_mb_keyerror(self, tmp_path):
-        """stats['epub_size_mb'] com colchetes - KeyError se faltar (linha 486)."""
+    def test_stats_missing_epub_size_mb_does_not_raise(self, tmp_path):
+        """CORREÇÃO C4: stats.get('epub_size_mb', 0) evita KeyError."""
         pdf = tmp_path / "doc.pdf"
         pdf.write_bytes(b"fake")
 
@@ -489,18 +496,20 @@ class TestQAConvertPdfToEpub:
                 str(tmp_path / "out.epub"),
                 {"title": "T", "chapters_created": 1, "total_pages": 1},
             )
-            with pytest.raises(KeyError, match="epub_size_mb"):
-                app.convert_pdf_to_epub_flow(_DummyFile(str(pdf)), "T", "A", "pt")
+            result = app.convert_pdf_to_epub_flow(_DummyFile(str(pdf)), "T", "A", "pt")
+            assert "0 MB" in result[1]
 
-    def test_stats_missing_total_pages_keyerror(self, tmp_path):
-        """stats['total_pages'] com colchetes - KeyError se faltar (linha 483)."""
+    def test_stats_missing_total_pages_does_not_raise(self, tmp_path):
+        """CORREÇÃO C4: stats.get('total_pages', 0) evita KeyError."""
         pdf = tmp_path / "doc.pdf"
         pdf.write_bytes(b"fake")
 
         with patch("app.FormatConverter.pdf_to_epub") as mock_conv:
             mock_conv.return_value = (str(tmp_path / "out.epub"), {"title": "T", "chapters_created": 1, "epub_size_mb": 1.0})
-            with pytest.raises(KeyError, match="total_pages"):
-                app.convert_pdf_to_epub_flow(_DummyFile(str(pdf)), "T", "A", "pt")
+            result = app.convert_pdf_to_epub_flow(_DummyFile(str(pdf)), "T", "A", "pt")
+            # total_pages ausente -> default 0; não deve levantar KeyError
+            assert result is not None
+            assert "0" in result[1]
 
 
 # ============================================================================

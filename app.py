@@ -133,9 +133,12 @@ def render_books_grid_html(books):
             img_tag = '<div style="font-size: 3.5rem; color: #94a3b8;">📖</div>'
 
         lang_badge = flag_map.get(b.get("lang", "").lower(), f"🌐 {b.get('lang', '').upper()}")
-        pages_count = b.get("pages", 0)
-        pdf_size = b.get("pdf_size_mb", 0)
-        epub_size = b.get("epub_size_mb", 0)
+        pages_count = b.get("pages", 0) or 0
+        pages_display = (
+            f"{pages_count:,}" if isinstance(pages_count, (int, float)) else "—"
+        )
+        pdf_size = b.get("pdf_size_mb", 0) or 0
+        epub_size = b.get("epub_size_mb", 0) or 0
         date_formatted = (b.get("date_added") or "")[:10]
         
         pdf_path = b.get("pdf_path") or ""
@@ -174,8 +177,8 @@ def render_books_grid_html(books):
             </div>
             <div class="card-content">
                 <div>
-                    <h3 class="card-title" title="{b.get('title')}">
-                        {b.get('title')}
+                    <h3 class="card-title" title="{b.get('title', 'Sem título')}">
+                        {b.get('title', 'Sem título')}
                     </h3>
                     <p class="card-author">
                         ✍️ {b.get('author', 'Autor Desconhecido')}
@@ -183,7 +186,7 @@ def render_books_grid_html(books):
                 </div>
                 <div>
                     <div class="card-meta-bar">
-                        <span class="card-pages-text">📄 <b>{pages_count:,}</b> páginas</span>
+                        <span class="card-pages-text">📄 <b>{pages_display}</b> páginas</span>
                         <span class="card-date-text">🗓️ {date_formatted}</span>
                     </div>
                     <div class="card-btn-grid">
@@ -230,7 +233,10 @@ def get_library_books(lang_code="Todos", category="Todos"):
 def update_library_view(lang_code="Todos", category="Todos"):
     books = get_library_books(lang_code, category)
     grid_html = render_books_grid_html(books)
-    choices = [f"[{b['lang'].upper()}] {b['title']} | slug:{b['slug']}" for b in books]
+    choices = [
+        f"[{b.get('lang', '?').upper()}] {b.get('title', 'Sem título')} | slug:{b.get('slug', '')}"
+        for b in books
+    ]
     default_val = choices[0] if choices else None
 
     if default_val:
@@ -331,7 +337,11 @@ def delete_book_from_library(selected_label, current_lang, current_cat):
     lang_code = match_lang.group(1).lower() if match_lang else "pt"
 
     lib = BookLibrary(OUTPUT_DIR)
-    lib.delete_book(lang=lang_code, slug=slug)
+    try:
+        lib.delete_book(lang=lang_code, slug=slug)
+    except Exception as e:
+        grid, choices, info, _ = update_library_view(current_lang, current_cat)
+        return f"❌ Erro ao remover: {e}", grid, choices, info
     return update_library_view(current_lang, current_cat)
 
 def translate_book(
@@ -419,13 +429,13 @@ def convert_scanned_pdf(
     code_merged_text = f"- **Blocos de Código Unificados:** {stats.get('code_blocks_merged', 0)}\n" if stats.get('code_blocks_merged') else ""
     status_msg = (
         f"### 🎉 Conversão OCR Concluída com Sucesso!\n"
-        f"- **Título:** {stats['title']}\n"
-        f"- **Autor:** {stats['author']}\n"
+        f"- **Título:** {stats.get('title', 'Título desconhecido')}\n"
+        f"- **Autor:** {stats.get('author', 'Autor desconhecido')}\n"
         f"- **Tempo Total:** `{elapsed_time}`\n"
-        f"- **Páginas Processadas:** {stats['total_pages']}\n"
-        f"- **Capítulos Consolidados:** {stats['chapters_created']}\n"
+        f"- **Páginas Processadas:** {stats.get('total_pages', 0)}\n"
+        f"- **Capítulos Consolidados:** {stats.get('chapters_created', 0)}\n"
         f"{code_merged_text}"
-        f"- **Tamanho do EPUB:** {stats['epub_size_mb']} MB\n"
+        f"- **Tamanho do EPUB:** {stats.get('epub_size_mb', 0)} MB\n"
         f"- **Biblioteca:** Obra indexada na categoria de livros digitalizados!"
     )
 
@@ -478,11 +488,11 @@ def convert_pdf_to_epub_flow(pdf_file, title, author, lang, progress=gr.Progress
     pdf_type_desc = "Escaneado / Foto (Processado via Motor OCR de Alta Resolução)" if stats.get("is_scanned") else "Vetorial Digital Nativo"
     status_msg = (
         f"### 🎉 Conversão PDF ➔ EPUB Concluída!\n"
-        f"- **Título:** {stats['title']}\n"
+        f"- **Título:** {stats.get('title', 'Título desconhecido')}\n"
         f"- **Tipo de PDF Detectado:** `{pdf_type_desc}`\n"
-        f"- **Páginas Processadas:** {stats['total_pages']}\n"
-        f"- **Capítulos Gerados:** {stats['chapters_created']}\n"
-        f"- **Tamanho do EPUB:** {stats['epub_size_mb']} MB\n"
+        f"- **Páginas Processadas:** {stats.get('total_pages', 0)}\n"
+        f"- **Capítulos Gerados:** {stats.get('chapters_created', 0)}\n"
+        f"- **Tamanho do EPUB:** {stats.get('epub_size_mb', 0)} MB\n"
         f"- **Tempo Total:** `{elapsed_time}`\n"
         f"- **Local:** `{final_epub}`"
     )
