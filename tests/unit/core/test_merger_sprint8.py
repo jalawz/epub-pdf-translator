@@ -110,3 +110,95 @@ class TestDocumentMergerSprint8:
         with zipfile.ZipFile(out, "r") as z:
             opf = z.read("OEBPS/content.opf").decode("utf-8")
             assert "cover-image" in opf
+
+    def test_merge_pdfs_converts_external_links_to_internal(self, tmp_path):
+        """Links externos (URI) em PDFs devem ser convertidos para GoTo interno quando o alvo é um capítulo conhecido."""
+        from pypdf.generic import DictionaryObject, NameObject, ArrayObject, TextStringObject
+
+        # Cria dois PDFs
+        p1 = tmp_path / "chap1.pdf"
+        p2 = tmp_path / "chap2.pdf"
+        _make_pdf(p1, "Capítulo 1")
+        _make_pdf(p2, "Capítulo 2")
+
+        # Adiciona um link externo na página 1 do primeiro PDF apontando para capítulo 2
+        doc = fitz.open(str(p1))
+        page = doc[0]
+        rect = fitz.Rect(72, 72, 200, 100)
+        page.insert_link({
+            "kind": fitz.LINK_URI,
+            "uri": "chapter2.xhtml",
+            "from": rect,
+        })
+        temp_pdf = tmp_path / "chap1_with_link.pdf"
+        doc.save(str(temp_pdf))
+        doc.close()
+        # Substitui o original pelo que tem o link
+        p1 = temp_pdf
+
+        out = tmp_path / "merged.pdf"
+        result = DocumentMerger.merge_pdfs(
+            [str(p1), str(p2)],
+            str(out),
+            chapter_titles=["Capítulo 1", "Capítulo 2"],
+            chapter_keys=["chapter2.xhtml"],
+        )
+
+        assert result is True
+
+        # Verifica que o link foi convertido de URI para GoTo
+        reader = pypdf.PdfReader(str(out))
+        page_0 = reader.pages[0]
+        annots = page_0.get("/Annots")
+        assert annots is not None
+
+        annot = annots[0].get_object()
+        assert annot.get("/Subtype") == NameObject("/Link")
+        action = annot.get("/A")
+        assert action is not None
+        assert action.get("/S") == NameObject("/GoTo")
+        assert action.get("/D") is not None
+
+    def test_merge_pdfs_non_uri_link_is_skipped(self, tmp_path):
+        """Links que não são URI (ex: GOTO) devem ser ignorados pelo merger."""
+        from pypdf.generic import DictionaryObject, NameObject
+
+        p1 = tmp_path / "chap1.pdf"
+        p2 = tmp_path / "chap2.pdf"
+        _make_pdf(p1, "Capítulo 1")
+        _make_pdf(p2, "Capítulo 2")
+
+        # Adiciona um link GOTO (não URI) na página 1
+        doc = fitz.open(str(p1))
+        page = doc[0]
+        rect = fitz.Rect(72, 72, 200, 100)
+        page.insert_link({
+            "kind": fitz.LINK_GOTO,
+            "page": 0,
+            "from": rect,
+        })
+        temp_pdf = tmp_path / "chap1_with_goto.pdf"
+        doc.save(str(temp_pdf))
+        doc.close()
+
+        out = tmp_path / "merged.pdf"
+        result = DocumentMerger.merge_pdfs(
+            [str(p1), str(p2)],
+            str(out),
+            chapter_titles=["Capítulo 1", "Capítulo 2"],
+            chapter_keys=["chapter2.xhtml"],
+        )
+
+        assert result is True
+
+        # Verifica que o link NÃO foi convertido para GoTo (permanece inalterado ou sem ação)
+        reader = pypdf.PdfReader(str(out))
+        page_0 = reader.pages[0]
+        annots = page_0.get("/Annots")
+        if annots:
+            annot = annots[0].get_object()
+            assert annot.get("/Subtype") == NameObject("/Link")
+            action = annot.get("/A")
+            # Um link GOTO não deve ter sido convertido para /GoTo interno
+            if action:
+                assert action.get("/S") != NameObject("/GoTo")

@@ -13,6 +13,9 @@ from unittest.mock import patch, MagicMock
 import fitz
 import pytest
 
+from pathlib import Path
+from pypdf import PdfWriter
+
 from src.pipeline import TranslationPipeline
 from src.core.translator import BaseTranslatorEngine
 from src.core.converter import FormatConverter
@@ -260,16 +263,21 @@ class TestBookInLibrary:
         doc.close()
 
         output_dir = tmp_path / "output"
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Criar EPUB real no disco para que os.path.getsize funcione
+        epub_path = output_dir / "book.epub"
+        epub_path.write_bytes(b"fake epub content for size calculation")
 
         with patch("src.core.converter.EpubBuilder") as mock_builder_class:
             mock_builder = MagicMock()
-            mock_builder.build.return_value = str(output_dir / "book.epub")
+            mock_builder.build.return_value = str(epub_path)
             mock_builder_class.return_value = mock_builder
 
             with patch("src.core.converter.EpubRefiner") as mock_refiner_class:
                 mock_refiner = MagicMock()
                 mock_refiner.refine.return_value = (
-                    str(output_dir / "book.epub"),
+                    str(epub_path),
                     {"refined_chapters": 1},
                 )
                 mock_refiner_class.return_value = mock_refiner
