@@ -47,6 +47,31 @@ def _mock_post(status=200, json_data=None):
     return mock_resp
 
 
+class TestInitFailureWithFallback:
+    @patch("requests.Session.get", side_effect=requests.ConnectionError("Bing offline"))
+    def test_init_failure_with_fallback_delegates_to_fallback(self, mock_get):
+        """BUG CRÍTICO (code review PR #5): Bing fora do ar no __init__ não pode
+        impedir a criação do objeto quando há fallback_engine."""
+        fallback = MagicMock()
+        fallback.translate.return_value = "Traduzido pelo fallback"
+
+        with patch("src.core.translator.time.sleep"):
+            # Não levanta RuntimeError
+            t = BingTranslatorEngine(lang_in="en", lang_out="pt", fallback_engine=fallback)
+
+        assert t.url is None and t.ig is None
+        result = t.translate("Hello world")
+        assert result == "Traduzido pelo fallback"
+        fallback.translate.assert_called_once_with("Hello world")
+
+    @patch("requests.Session.get", side_effect=requests.ConnectionError("Bing offline"))
+    def test_init_failure_without_fallback_still_raises(self, mock_get):
+        """Sem fallback, a falha de inicialização continua levantando RuntimeError."""
+        with patch("src.core.translator.time.sleep"):
+            with pytest.raises(RuntimeError, match="Failed to obtain Bing"):
+                BingTranslatorEngine(lang_in="en", lang_out="pt")
+
+
 class TestTokenExtractionFallbackPatterns:
     @patch("requests.Session.get", return_value=_mock_get(html=BING_GET_HTML_ALT))
     def test_extracts_tokens_with_alternative_patterns(self, mock_get):
@@ -166,3 +191,34 @@ class TestGoogleTranslateEngine:
 
         t = GoogleTranslateEngine(lang_in="en", lang_out="pt")
         assert t.translate("Hello world") == "Hello world"
+
+    @patch("requests.Session.get")
+    def test_none_segments_are_ignored(self, mock_get):
+        """Segmentos com texto None não quebram o join (TypeError)."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = [
+            [["Olá", "Hello", None], [None, "x", None], [" mundo", " world", None]]
+        ]
+        mock_get.return_value = mock_resp
+
+        t = GoogleTranslateEngine(lang_in="en", lang_out="pt")
+        assert t.translate("Hello world") == "Olá mundo"
+
+    @patch("requests.Session.get")
+    def test_long_sentence_without_punctuation_is_hard_split(self, mock_get):
+        """Parágrafo longo sem pontuação é fatiado para URL segura (sem 414)."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = [[[" traduzido ", "x", None]]]
+        mock_get.return_value = mock_resp
+
+        t = GoogleTranslateEngine(lang_in="en", lang_out="pt")
+        long_text = "palavra " * 600  # ~4800 chars, sem pontuação final
+        result = t.translate(long_text.strip())
+
+        assert isinstance(result, str) and result
+        # Nenhuma chamada GET deve ter query gigante
+        for call in mock_get.call_args_list:
+            q = call.kwargs["params"]["q"]
+            assert len(q) <= 1000
