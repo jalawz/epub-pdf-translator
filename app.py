@@ -88,13 +88,33 @@ def _clean_optional_text(value) -> str | None:
     cleaned = value.strip()
     return cleaned or None
 
+def _open_path_default(path: str) -> None:
+    """Abre um arquivo/pasta com o aplicativo padrão, multiplataforma."""
+    if sys.platform.startswith("win"):
+        os.startfile(path)
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", path])
+    else:
+        subprocess.Popen(["xdg-open", path])
+
+
+def _reveal_path(path: str) -> None:
+    """Revela um arquivo no gerenciador de arquivos, multiplataforma."""
+    if sys.platform.startswith("win"):
+        subprocess.Popen(["explorer", f"/select,{path}"])
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", "-R", path])
+    else:
+        subprocess.Popen(["xdg-open", os.path.dirname(path) or "."])
+
+
 def open_file_desktop(file_path: str) -> str:
     if not file_path or not os.path.exists(file_path):
         return "⚠️ Arquivo não encontrado no disco local."
     try:
         norm_path = os.path.normpath(file_path)
-        os.startfile(norm_path)
-        return f"🚀 **Arquivo aberto no leitor do Windows:** `{os.path.basename(norm_path)}`"
+        _open_path_default(norm_path)
+        return f"🚀 **Arquivo aberto no leitor padrão:** `{os.path.basename(norm_path)}`"
     except Exception as e:
         return f"❌ Erro ao abrir arquivo: {str(e)}"
 
@@ -104,10 +124,10 @@ def open_folder_desktop(target_path: str) -> str:
     try:
         norm_path = os.path.normpath(target_path)
         if os.path.isdir(norm_path):
-            os.startfile(norm_path)
+            _open_path_default(norm_path)
         else:
-            subprocess.Popen(["explorer", f"/select,{norm_path}"])
-        return f"📂 **Pasta aberta no Windows Explorer:** `{os.path.dirname(norm_path) if not os.path.isdir(norm_path) else norm_path}`"
+            _reveal_path(norm_path)
+        return f"📂 **Pasta aberta no gerenciador de arquivos:** `{os.path.dirname(norm_path) if not os.path.isdir(norm_path) else norm_path}`"
     except Exception as e:
         return f"❌ Erro ao abrir pasta: {str(e)}"
 
@@ -1088,7 +1108,7 @@ def _api_open_file_handler(path: str):
         if not _is_safe_path(norm, OUTPUT_DIR):
             return JSONResponse({"status": "error", "message": "Caminho fora do diretório permitido."}, status_code=403)
         if os.path.exists(norm):
-            os.startfile(norm)
+            _open_path_default(norm)
             return JSONResponse({"status": "success", "opened": norm})
         return JSONResponse({"status": "error", "message": f"Arquivo não encontrado: {norm}"}, status_code=404)
     except Exception as e:
@@ -1104,9 +1124,9 @@ def _api_open_folder_handler(path: str):
             return JSONResponse({"status": "error", "message": "Caminho fora do diretório permitido."}, status_code=403)
         if os.path.exists(norm):
             if os.path.isdir(norm):
-                os.startfile(norm)
+                _open_path_default(norm)
             else:
-                subprocess.Popen(["explorer", f"/select,{norm}"])
+                _reveal_path(norm)
             return JSONResponse({"status": "success", "folder": norm})
         return JSONResponse({"status": "error", "message": f"Caminho não encontrado: {norm}"}, status_code=404)
     except Exception as e:

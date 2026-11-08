@@ -8,18 +8,44 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from src.pipeline import TranslationPipeline
 from src.core.translator import BingTranslatorEngine, GoogleTranslateEngine, OllamaTranslatorEngine
 
+try:
+    from src import __version__
+except ImportError:
+    __version__ = "1.0.0"
+
 def main():
     parser = argparse.ArgumentParser(
         description="epub-pdf-translator: Translate EPUB books and compile to structured, print-ready PDFs."
     )
-    parser.add_argument("epub_file", help="Path to the input .epub file")
+    parser.add_argument("epub_file", nargs="?", help="Path to the input .epub file")
     parser.add_argument("-li", "--lang-in", default="en", help="Source language code (default: en)")
     parser.add_argument("-lo", "--lang-out", default="pt", help="Target language code (default: pt)")
     parser.add_argument("-o", "--output-dir", default="output", help="Directory to save output PDF and EPUB")
     parser.add_argument("-w", "--workers", type=int, default=5, help="Number of concurrent translation workers")
     parser.add_argument("--ollama", help="Use local Ollama model instead of default engine (e.g., qwen2.5:latest)")
+    parser.add_argument("--version", action="version", version=f"epub-pdf-translator {__version__}")
+    parser.add_argument("--dry-run", action="store_true", help="Validate inputs and print the plan without translating")
 
     args = parser.parse_args()
+
+    if args.dry_run:
+        if not args.epub_file:
+            print("Error: an EPUB file is required for --dry-run", file=sys.stderr)
+            sys.exit(1)
+        if not os.path.exists(args.epub_file):
+            print(f"Error: File not found: {args.epub_file}", file=sys.stderr)
+            sys.exit(1)
+        engine_desc = f"Ollama ({args.ollama})" if args.ollama else "Bing (fallback Google online)"
+        print("Dry run — no translation will be performed:")
+        print(f"  Book:   {args.epub_file}")
+        print(f"  From:   {args.lang_in} -> To: {args.lang_out}")
+        print(f"  Engine: {engine_desc}")
+        print(f"  Workers: {args.workers}")
+        print(f"  Output: {args.output_dir}")
+        return
+
+    if not args.epub_file:
+        parser.error("the following arguments are required: epub_file")
 
     if not os.path.exists(args.epub_file):
         print(f"Error: File not found: {args.epub_file}", file=sys.stderr)

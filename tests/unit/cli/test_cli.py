@@ -61,6 +61,44 @@ class TestCliArgumentParsing:
             parser.parse_args([])
 
 
+class TestCliDryRunAndVersion:
+    def test_version_flag_prints_and_exits(self, capsys):
+        """--version imprime a versão e sai com código 0."""
+        with patch.object(sys, "argv", ["cli.py", "--version"]):
+            with pytest.raises(SystemExit) as exc_info:
+                cli.main()
+        assert exc_info.value.code == 0
+        assert cli.__version__ in capsys.readouterr().out
+
+    @patch("cli.TranslationPipeline")
+    @patch("cli.BingTranslatorEngine")
+    @patch("cli.os.path.exists", return_value=True)
+    def test_dry_run_does_not_translate(self, mock_exists, mock_bing, mock_pipeline):
+        """--dry-run valida e imprime o plano sem criar pipeline/tradutor."""
+        with patch.object(sys, "argv", ["cli.py", "livro.epub", "--dry-run"]):
+            with patch("builtins.print") as mock_print:
+                cli.main()
+        mock_pipeline.assert_not_called()
+        mock_bing.assert_not_called()
+        output = " ".join(str(c) for c in mock_print.call_args_list)
+        assert "Dry run" in output
+        assert "livro.epub" in output
+
+    @patch("cli.os.path.exists", return_value=False)
+    def test_dry_run_missing_file_exits_1(self, mock_exists):
+        """--dry-run com arquivo inexistente sai com código 1."""
+        with patch.object(sys, "argv", ["cli.py", "nao_existe.epub", "--dry-run"]):
+            with pytest.raises(SystemExit) as exc_info:
+                cli.main()
+        assert exc_info.value.code == 1
+
+    def test_no_args_without_dry_run_exits(self):
+        """Sem EPUB e sem --version/--dry-run, a CLI sai com erro de uso."""
+        with patch.object(sys, "argv", ["cli.py"]):
+            with pytest.raises(SystemExit):
+                cli.main()
+
+
 class TestCliMainFlow:
     @patch("cli.TranslationPipeline")
     @patch("cli.BingTranslatorEngine")
