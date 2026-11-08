@@ -243,12 +243,24 @@ class BookLibrary:
                     existing = self.get_book(lang, slug)
                     if not existing:
                         logger.info(f"Migrating legacy book '{clean_title}' to library [{lang}]...")
+                        # Extrai o autor real do EPUB (sem hardcodes por título).
+                        migrated_author = "Desconhecido"
+                        try:
+                            from src.core.epub_parser import EpubParser
+
+                            parser = EpubParser(epub_candidate)
+                            creator = (parser.metadata.get("creator") or "").strip()
+                            if creator and creator != "Unknown Author":
+                                migrated_author = creator
+                            parser.close()
+                        except Exception:
+                            pass
                         record = self.add_book(
                             pdf_path=pdf_path,
                             epub_path=epub_candidate,
                             metadata={
                                 "title": clean_title,
-                                "author": "Magnus Larsson" if "Microservices" in clean_title else "Desconhecido",
+                                "author": migrated_author,
                                 "quality_certified": True
                             },
                             lang=lang,

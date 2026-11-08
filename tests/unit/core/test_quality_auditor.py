@@ -105,3 +105,58 @@ class TestAuditHtmlDetectsUntranslatedPortugueseTarget:
         """
         flagged_dirty = QualityAuditor.audit_html(html_dirty)
         assert len(flagged_dirty) >= 1
+
+
+class TestAuditHtmlLanguagePairs:
+    """Pares EN->ES e FR->PT (Feature 8 do plano)."""
+
+    def test_flags_english_in_spanish_target(self):
+        html = """
+        <html><body>
+            <p>The quick brown fox jumps over the lazy dog and this is the test.</p>
+            <p>This paragraph remains in the source language with the words.</p>
+        </body></html>
+        """
+        flagged = QualityAuditor.audit_html(html, lang_in="en", lang_out="es")
+        assert len(flagged) >= 1
+        assert flagged[0]["lang_in"] == "en"
+        assert flagged[0]["lang_out"] == "es"
+        assert flagged[0]["source_stopwords"] >= 3
+
+    def test_passes_spanish_translation(self):
+        html = """
+        <html><body>
+            <p>Este es un texto en español que fue traducido correctamente para el lector.</p>
+            <p>Otro párrafo completamente en español de España con las palabras.</p>
+        </body></html>
+        """
+        flagged = QualityAuditor.audit_html(html, lang_in="en", lang_out="es")
+        assert len(flagged) == 0
+
+    def test_flags_french_in_portuguese_target(self):
+        """FR->PT: texto que ficou em francês deve ser flagado."""
+        html = """
+        <html><body>
+            <p>Le renard brun rapide saute par dessus le chien paresseux dans le jardin.</p>
+            <p>Cette section reste en français avec les mots du texte original.</p>
+        </body></html>
+        """
+        flagged = QualityAuditor.audit_html(html, lang_in="fr", lang_out="pt")
+        assert len(flagged) >= 1
+        assert flagged[0]["lang_in"] == "fr"
+        assert flagged[0]["lang_out"] == "pt"
+
+    def test_passes_portuguese_from_french(self):
+        html = """
+        <html><body>
+            <p>Este é um texto em português que foi traduzido corretamente do francês.</p>
+            <p>Outro parágrafo completamente em português do Brasil com as palavras.</p>
+        </body></html>
+        """
+        flagged = QualityAuditor.audit_html(html, lang_in="fr", lang_out="pt")
+        assert len(flagged) == 0
+
+    def test_unknown_source_language_returns_no_flags(self):
+        """Idioma de origem desconhecido não pode ser auditado."""
+        html = "<html><body><p>The the the the the the the.</p></body></html>"
+        assert QualityAuditor.audit_html(html, lang_in="xx", lang_out="pt") == []

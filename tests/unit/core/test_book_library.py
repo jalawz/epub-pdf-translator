@@ -317,3 +317,34 @@ class TestScanAndMigrateLegacy:
         lib.scan_and_migrate_legacy()
         migrated_again = lib.scan_and_migrate_legacy()
         assert len(migrated_again) == 0  # já migrado, não duplica
+
+    def test_scan_and_migrate_legacy_extracts_author_from_epub(self, tmp_path):
+        """CORREÇÃO Sprint 10: autor migrado vem do dc:creator do EPUB, não de hardcode."""
+        import zipfile
+
+        lib = BookLibrary(root_dir=str(tmp_path))
+        pdf = tmp_path / "Microservices_for_pt.pdf"
+        epub = tmp_path / "Microservices_for_pt.epub"
+        _make_pdf(pdf, "Microservices")
+        with zipfile.ZipFile(epub, "w", compression=zipfile.ZIP_DEFLATED) as z:
+            z.writestr("mimetype", "application/epub+zip", compress_type=zipfile.ZIP_STORED)
+            z.writestr(
+                "META-INF/container.xml",
+                '<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
+                '<rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>'
+                "</container>",
+                compress_type=zipfile.ZIP_DEFLATED,
+            )
+            z.writestr(
+                "OEBPS/content.opf",
+                '<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0">'
+                '<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">'
+                "<dc:title>Microservices</dc:title><dc:creator>Autora Real</dc:creator></metadata>"
+                "<manifest/><spine/></package>",
+                compress_type=zipfile.ZIP_DEFLATED,
+            )
+
+        migrated = lib.scan_and_migrate_legacy()
+        assert len(migrated) == 1
+        assert migrated[0]["author"] == "Autora Real"
+        assert migrated[0]["author"] != "Magnus Larsson"
