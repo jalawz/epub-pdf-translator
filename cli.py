@@ -6,7 +6,7 @@ import argparse
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from src.pipeline import TranslationPipeline
-from src.core.translator import BingTranslatorEngine, OllamaTranslatorEngine
+from src.core.translator import BingTranslatorEngine, GoogleTranslateEngine, OllamaTranslatorEngine
 
 def main():
     parser = argparse.ArgumentParser(
@@ -36,8 +36,11 @@ def main():
         print(f"Engine: Ollama (Local AI Model: {args.ollama})")
         translator = OllamaTranslatorEngine(lang_in=args.lang_in, lang_out=args.lang_out, model=args.ollama)
     else:
-        print("Engine: Neural Fast Translator (Default)")
-        translator = BingTranslatorEngine(lang_in=args.lang_in, lang_out=args.lang_out)
+        print("Engine: Neural Fast Translator (Default, fallback Google online)")
+        fallback = GoogleTranslateEngine(lang_in=args.lang_in, lang_out=args.lang_out)
+        translator = BingTranslatorEngine(
+            lang_in=args.lang_in, lang_out=args.lang_out, fallback_engine=fallback
+        )
 
     pipeline = TranslationPipeline(
         epub_path=args.epub_file,

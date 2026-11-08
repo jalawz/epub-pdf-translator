@@ -29,7 +29,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
 
 from src.pipeline import TranslationPipeline
-from src.core.translator import BingTranslatorEngine, OllamaTranslatorEngine
+from src.core.translator import BingTranslatorEngine, GoogleTranslateEngine, OllamaTranslatorEngine
 from src.core.library import BookLibrary
 from src.ocr_pipeline import OcrToEpubPipeline
 from src.core.converter import FormatConverter
@@ -410,7 +410,10 @@ def translate_book(
         model_name = (ollama_model or "").strip() or "qwen2.5:latest"
         translator = OllamaTranslatorEngine(lang_in=source_lang, lang_out=target_lang, model=model_name)
     else:
-        translator = BingTranslatorEngine(lang_in=source_lang, lang_out=target_lang)
+        # Bing com fallback automático para o Google Translate online
+        # (grátis, sem chave) caso o endpoint não-oficial fique indisponível.
+        fallback = GoogleTranslateEngine(lang_in=source_lang, lang_out=target_lang)
+        translator = BingTranslatorEngine(lang_in=source_lang, lang_out=target_lang, fallback_engine=fallback)
 
     pipeline = TranslationPipeline(
         epub_path=input_path,

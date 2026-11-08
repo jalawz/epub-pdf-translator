@@ -64,9 +64,9 @@ class TestCliArgumentParsing:
 class TestCliMainFlow:
     @patch("cli.TranslationPipeline")
     @patch("cli.BingTranslatorEngine")
-    @patch("cli.OllamaTranslatorEngine")
+    @patch("cli.GoogleTranslateEngine")
     @patch("cli.os.path.exists", return_value=True)
-    def test_main_uses_bing_by_default(self, mock_exists, mock_ollama, mock_bing,
+    def test_main_uses_bing_by_default(self, mock_exists, mock_google, mock_bing,
                                        mock_pipeline):
         """CLI padrão deve usar BingTranslatorEngine quando --ollama não informado."""
         mock_instance = MagicMock()
@@ -80,8 +80,11 @@ class TestCliMainFlow:
                 except SystemExit:
                     pass
 
-        mock_bing.assert_called_once_with(lang_in="en", lang_out="pt")
-        mock_ollama.assert_not_called()
+        mock_bing.assert_called_once_with(
+            lang_in="en", lang_out="pt", fallback_engine=mock_google.return_value
+        )
+        # Google é instanciado como fallback online do Bing
+        mock_google.assert_called_once_with(lang_in="en", lang_out="pt")
 
     @patch("cli.TranslationPipeline")
     @patch("cli.BingTranslatorEngine")
@@ -131,7 +134,10 @@ class TestCliMainFlow:
                 except SystemExit:
                     pass
 
-        mock_bing.assert_called_once_with(lang_in="fr", lang_out="es")
+        call_kwargs = mock_bing.call_args.kwargs
+        assert call_kwargs["lang_in"] == "fr"
+        assert call_kwargs["lang_out"] == "es"
+        assert "fallback_engine" in call_kwargs
 
     @patch("cli.TranslationPipeline")
     @patch("cli.BingTranslatorEngine")

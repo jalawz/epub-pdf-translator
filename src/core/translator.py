@@ -1,8 +1,11 @@
+import logging
 import re
 import time
 import threading
 import requests
 from abc import ABC, abstractmethod
+
+logger = logging.getLogger(__name__)
 
 class BaseTranslatorEngine(ABC):
     """Abstract interface for translation engines."""
@@ -12,11 +15,36 @@ class BaseTranslatorEngine(ABC):
         pass
 
 class BingTranslatorEngine(BaseTranslatorEngine):
-    """Fast, free Bing Neural Translation engine with token caching and connection pooling."""
+    """Fast, free Bing Neural Translation engine with token caching and connection pooling.
 
-    def __init__(self, lang_in: str = "en", lang_out: str = "pt"):
+    The Bing web endpoint is unofficial (page scraping), so extraction of the
+    session tokens uses multiple pattern fallbacks, retries use exponential
+    backoff, and an optional fallback engine (e.g. Google Translate) takes
+    over when the Bing endpoint stays unavailable instead of silently
+    returning the untranslated source text.
+    """
+
+    # Fallback patterns tried in order for each token (first match wins).
+    _IG_PATTERNS = (r'"ig"\s*:\s*"(.*?)"', r"'ig'\s*:\s*'(.*?)'")
+    _IID_PATTERNS = (r'data-iid="(.*?)"', r"data-iid='(.*?)'")
+    _KEY_TOKEN_PATTERNS = (
+        r'params_AbusePreventionHelper\s=\s\[(.*?),\"(.*?)\",',
+        r'params_AbusePreventionHelper\s*=\s*\[\s*"(.*?)","(.*?)"',
+    )
+
+    # Exponential backoff base in seconds: 0.5, 1.0, 2.0, ...
+    BACKOFF_BASE_SECONDS = 0.5
+    MAX_ATTEMPTS = 3
+
+    def __init__(
+        self,
+        lang_in: str = "en",
+        lang_out: str = "pt",
+        fallback_engine: "BaseTranslatorEngine | None" = None,
+    ):
         self.lang_in = lang_in
         self.lang_out = lang_out
+        self.fallback_engine = fallback_engine
         self.endpoint = "https://www.bing.com/translator"
         self.headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
@@ -28,28 +56,71 @@ class BingTranslatorEngine(BaseTranslatorEngine):
         self.iid = None
         self.key = None
         self.token = None
-        self._refresh_token()
+        try:
+            self._refresh_token()
+        except RuntimeError:
+            if self.fallback_engine is None:
+                raise
+            logger.warning(
+                "[Bing] Failed to obtain initial tokens; "
+                "the fallback engine will handle translations."
+            )
+
+    @staticmethod
+    def _extract_first(patterns, text: str, last: bool = False):
+        """Return the first captured group of the first pattern that matches."""
+        for pattern in patterns:
+            matches = re.findall(pattern, text)
+            if matches:
+                return matches[-1] if last else matches[0]
+        return None
 
     def _refresh_token(self):
         with self.lock:
-            for _ in range(3):
+            for attempt in range(self.MAX_ATTEMPTS):
                 try:
                     r = self.session.get(self.endpoint, headers=self.headers, timeout=10)
                     r.raise_for_status()
                     self.url = r.url[:-10]
-                    self.ig = re.findall(r'\"ig\":\"(.*?)\"', r.text)[0]
-                    self.iid = re.findall(r'data-iid=\"(.*?)\"', r.text)[-1]
-                    self.key, self.token = re.findall(r'params_AbusePreventionHelper\s=\s\[(.*?),\"(.*?)\",', r.text)[0]
+                    self.ig = self._extract_first(self._IG_PATTERNS, r.text)
+                    self.iid = self._extract_first(self._IID_PATTERNS, r.text, last=True)
+                    key_token = None
+                    for pattern in self._KEY_TOKEN_PATTERNS:
+                        found = re.findall(pattern, r.text)
+                        if found:
+                            key_token = found[0]
+                            break
+                    if not (self.ig and self.iid and key_token):
+                        raise ValueError("Bing session tokens not found in page")
+                    self.key, self.token = key_token
                     return
                 except Exception:
-                    time.sleep(1)
+                    if attempt < self.MAX_ATTEMPTS - 1:
+                        time.sleep(self.BACKOFF_BASE_SECONDS * (2 ** attempt))
             raise RuntimeError("Failed to obtain Bing Translator authentication tokens.")
+
+    def _translate_via_fallback(self, text: str):
+        """Delegate to the fallback engine; None if unavailable or it failed."""
+        if self.fallback_engine is None:
+            return None
+        try:
+            logger.warning("[Bing] Endpoint unavailable; using fallback translation engine.")
+            return self.fallback_engine.translate(text)
+        except Exception as e:
+            logger.warning(f"[Bing] Fallback engine failed: {e}")
+            return None
 
     def _translate_single_chunk(self, text: str) -> str:
         if not text or not text.strip():
             return text
 
-        for attempt in range(3):
+        # No session tokens (e.g. Bing was down at startup): delegate
+        # immediately instead of POSTing against a nonexistent URL.
+        if not (self.url and self.ig and self.iid and self.key and self.token):
+            fallback_result = self._translate_via_fallback(text)
+            return fallback_result if fallback_result is not None else text
+
+        for attempt in range(self.MAX_ATTEMPTS):
             try:
                 post_url = f"{self.url}ttranslatev3?IG={self.ig}&IID={self.iid}"
                 res = self.session.post(
@@ -73,10 +144,17 @@ class BingTranslatorEngine(BaseTranslatorEngine):
                 elif res.status_code in (401, 403, 400):
                     self._refresh_token()
             except Exception:
-                time.sleep(0.5)
-                self._refresh_token()
+                if attempt < self.MAX_ATTEMPTS - 1:
+                    time.sleep(self.BACKOFF_BASE_SECONDS * (2 ** attempt))
+                try:
+                    self._refresh_token()
+                except RuntimeError:
+                    # Keep trying the next attempt; the fallback engine (if
+                    # any) is used once all attempts are exhausted.
+                    pass
 
-        return text
+        fallback_result = self._translate_via_fallback(text)
+        return fallback_result if fallback_result is not None else text
 
     def translate(self, text: str) -> str:
         if not text or not text.strip():
@@ -102,6 +180,86 @@ class BingTranslatorEngine(BaseTranslatorEngine):
 
         translated_chunks = [self._translate_single_chunk(c) for c in chunks]
         return " ".join(translated_chunks)
+
+class GoogleTranslateEngine(BaseTranslatorEngine):
+    """Free online fallback translator (no API key required).
+
+    Uses the public Google Translate web endpoint. This is an unofficial
+    endpoint (no SLA), so it is used only as a fallback when the primary
+    engine is unavailable. Returns the original text on failure.
+    """
+
+    def __init__(self, lang_in: str = "en", lang_out: str = "pt"):
+        self.lang_in = lang_in
+        self.lang_out = lang_out
+        self.endpoint = "https://translate.googleapis.com/translate_a/single"
+        self.session = requests.Session()
+        self.headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+        }
+
+    def _translate_single_chunk(self, text: str) -> str:
+        try:
+            res = self.session.get(
+                self.endpoint,
+                params={
+                    "client": "gtx",
+                    "sl": self.lang_in,
+                    "tl": self.lang_out,
+                    "dt": "t",
+                    "q": text,
+                },
+                headers=self.headers,
+                timeout=10,
+            )
+            if res.status_code == 200:
+                data = res.json()
+                # data[0] is a list of segments: [[translated, original, ...], ...]
+                if isinstance(data, list) and data and isinstance(data[0], list):
+                    return "".join(
+                        segment[0] for segment in data[0] if segment and segment[0]
+                    )
+        except Exception as e:
+            logger.warning(f"[GoogleTranslate Error] {e}")
+        return text
+
+    def translate(self, text: str) -> str:
+        if not text or not text.strip():
+            return text
+        if len(text) <= 1000:
+            return self._translate_single_chunk(text)
+        # Split long text by sentence boundaries, like the Bing engine.
+        sentences = re.split(r'(?<=[.!?\n])\s+', text)
+        chunks = []
+        cur = ""
+        for s in sentences:
+            # Hard-split oversized sentences (no punctuation) so the GET
+            # query string never exceeds safe URL limits (HTTP 414).
+            pieces = [s]
+            if len(s) > 900:
+                pieces = []
+                piece = ""
+                for word in s.split(" "):
+                    candidate = f"{piece} {word}".strip()
+                    if len(candidate) <= 900:
+                        piece = candidate
+                    else:
+                        if piece:
+                            pieces.append(piece)
+                        piece = word[:900] if len(word) > 900 else word
+                if piece:
+                    pieces.append(piece)
+            for piece in pieces:
+                if len(cur) + len(piece) + 1 <= 900:
+                    cur = f"{cur} {piece}" if cur else piece
+                else:
+                    if cur:
+                        chunks.append(cur)
+                    cur = piece
+        if cur:
+            chunks.append(cur)
+        return " ".join(self._translate_single_chunk(c) for c in chunks)
+
 
 class OllamaTranslatorEngine(BaseTranslatorEngine):
     """Local offline translator via Ollama."""
@@ -132,5 +290,5 @@ class OllamaTranslatorEngine(BaseTranslatorEngine):
             if res.status_code == 200:
                 return res.json().get("response", "").strip()
         except Exception as e:
-            print(f"[Ollama Error] {e}")
+            logger.warning(f"[Ollama Error] {e}")
         return text
