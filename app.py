@@ -174,9 +174,10 @@ def render_books_grid_html(books):
             tgt_l = _html_escape(b.get("lang", "PT").upper())
             cat_badge_text = f"🌐 Traduzido ({src_l} ➔ {tgt_l})"
 
-        # Variáveis seguras para uso em strings JS (onclick) — escapa aspas simples
-        pdf_path_js = pdf_path_url.replace("'", "\\'")
-        epub_path_js = epub_path_url.replace("'", "\\'")
+        # Variáveis seguras para uso em atributos HTML e URLs — percent-encode elimina
+        # qualquer caractere perigoso (aspas, espaços, etc.) tanto para HTML quanto URL.
+        pdf_path_param = urllib.parse.quote(pdf_path_url)
+        epub_path_param = urllib.parse.quote(epub_path_url)
 
         card = f"""
         <div class="library-card">
@@ -207,17 +208,17 @@ def render_books_grid_html(books):
                         <span class="card-date-text">🗓️ {_html_escape(date_formatted)}</span>
                     </div>
                     <div class="card-btn-grid">
-                        <button class="card-btn card-btn-pdf" onclick="fetch('/api/open-file?path=' + encodeURIComponent('{pdf_path_js}')).catch(console.error); return false;" title="Abrir PDF no aplicativo padrão do Windows">
+                        <button class="card-btn card-btn-pdf" onclick="fetch('/api/open-file?path={pdf_path_param}').catch(console.error); return false;" title="Abrir PDF no aplicativo padrão do Windows">
                             <span>📄 Abrir PDF</span>
                             <span class="card-btn-sub">({pdf_size} MB)</span>
                         </button>
-                        <button class="card-btn card-btn-epub" onclick="fetch('/api/open-file?path=' + encodeURIComponent('{epub_path_js}')).catch(console.error); return false;" title="Abrir EPUB no aplicativo padrão do Windows">
+                        <button class="card-btn card-btn-epub" onclick="fetch('/api/open-file?path={epub_path_param}').catch(console.error); return false;" title="Abrir EPUB no aplicativo padrão do Windows">
                             <span>📱 Abrir EPUB</span>
                             <span class="card-btn-sub">({epub_size} MB)</span>
                         </button>
                     </div>
                     <div class="card-actions-sub">
-                        <button class="card-sub-btn" onclick="fetch('/api/open-folder?path=' + encodeURIComponent('{pdf_path_js}')).catch(console.error); return false;" title="Abrir pasta no Windows Explorer">
+                        <button class="card-sub-btn" onclick="fetch('/api/open-folder?path={pdf_path_param}').catch(console.error); return false;" title="Abrir pasta no Windows Explorer">
                             📂 Abrir Pasta
                         </button>
                         <a href="/gradio_api/file={_html_escape(pdf_path_url)}" target="_blank" download="{_html_escape(pdf_filename)}" class="card-sub-link" title="Baixar arquivo PDF">

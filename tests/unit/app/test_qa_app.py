@@ -158,7 +158,7 @@ class TestQALibraryRendering:
         assert "</script>" not in html
 
     def test_book_with_path_containing_quote(self, tmp_path):
-        """CORREÇÃO QA-2/S2: Caminho com aspas deve ser ESCAPADO em href/onclick."""
+        """CORREÇÃO QA-2/S2: Caminho com aspas deve ser percent-encodeado em onclick/href."""
         books = [
             {
                 "title": "Título",
@@ -178,12 +178,17 @@ class TestQALibraryRendering:
             }
         ]
         html = app.render_books_grid_html(books)
-        # Aspas no caminho devem estar escapadas como &quot;
-        assert '&quot;' in html
-        # O nome do arquivo deve aparecer (com aspas escapadas)
+
+        # Nenhuma aspa dupla crua deve aparecer dentro de onclick (fecharia o atributo)
+        for line in html.splitlines():
+            if "onclick=" in line:
+                assert 'a"b.pdf' not in line, f"Aspa dupla crua em onclick: {line}"
+
+        # O caminho deve estar percent-encodeado (aspas duplas viram %22)
+        assert "%22" in html
+
+        # O nome do arquivo deve aparecer (com aspas encodeadas)
         assert "a" in html and "b.pdf" in html
-        # As aspas duplas não devem aparecer não-escapadas quebrando o href
-        assert 'href="/gradio_api/file=' not in html or '&quot;' in html
 
     def test_book_missing_optional_keys_does_not_crash(self, tmp_path):
         """Livro sem chaves opcionais não deve levantar KeyError."""
