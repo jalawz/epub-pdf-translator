@@ -302,7 +302,7 @@ class TranslationPipeline:
         total_suspicious = 0
         for chap_path, chap_html in translated_files_for_epub.items():
             chap_id = os.path.splitext(os.path.basename(chap_path))[0]
-            flagged = QualityAuditor.audit_html(chap_html)
+            flagged = QualityAuditor.audit_html(chap_html, lang_in=self.lang_in, lang_out=self.lang_out)
             if flagged:
                 audit_results[chap_id] = flagged
                 total_suspicious += len(flagged)
