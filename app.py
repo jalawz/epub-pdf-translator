@@ -99,6 +99,21 @@ def open_folder_desktop(target_path: str) -> str:
     except Exception as e:
         return f"❌ Erro ao abrir pasta: {str(e)}"
 
+def open_parent_folder_desktop(file_path: str) -> str:
+    """Abre a pasta que contém o arquivo (botões 'Abrir na Pasta').
+
+    Diferente de open_folder_desktop, que revela o arquivo no Explorer,
+    esta função abre o diretório pai — comportamento esperado pelo rótulo.
+    Se file_path já for uma pasta, abre-a diretamente.
+    """
+    if not file_path or not os.path.exists(file_path):
+        return "⚠️ Arquivo não encontrado no disco local."
+    norm_path = os.path.normpath(file_path)
+    folder = norm_path if os.path.isdir(norm_path) else os.path.dirname(norm_path)
+    if not folder or not os.path.exists(folder):
+        return "⚠️ Pasta do arquivo não encontrada no disco local."
+    return open_folder_desktop(folder)
+
 def _html_escape(text: str) -> str:
     """Escapa caracteres HTML (&, <, >, ", ') para prevenir XSS.
 
@@ -170,7 +185,7 @@ def render_books_grid_html(books):
             cat_badge_text = "📷 Digitalizado (OCR)"
         else:
             cat_badge_class = "card-badge-trans"
-            src_l = _html_escape(b.get("source_lang", "EN").upper())
+            src_l = _html_escape((b.get("source_lang") or "—").upper())
             tgt_l = _html_escape(b.get("lang", "PT").upper())
             cat_badge_text = f"🌐 Traduzido ({src_l} ➔ {tgt_l})"
 
@@ -266,10 +281,10 @@ def update_library_view(lang_code="Todos", category="Todos"):
         cat_badge = "📷 Digitalizado (OCR)" if first_b.get("category") == "ocr" else "🌐 Traduzido"
         info = (
             f"### 📖 {first_b.get('title')}\n"
-            f"- **Categoria:** `{cat_badge}` | **Autor:** {first_b.get('author')}\n"
-            f"- **Páginas:** {first_b.get('pages')} | **Idioma:** {first_b.get('lang', '').upper()}\n"
-            f"- **Arquivo PDF:** `{pdf_name}` ({first_b.get('pdf_size_mb')} MB)\n"
-            f"- **Arquivo EPUB:** `{epub_name}` ({first_b.get('epub_size_mb')} MB)\n"
+            f"- **Categoria:** `{cat_badge}` | **Autor:** {first_b.get('author') or 'Autor Desconhecido'}\n"
+            f"- **Páginas:** {first_b.get('pages') or 0} | **Idioma:** {first_b.get('lang', '').upper()}\n"
+            f"- **Arquivo PDF:** `{pdf_name}` ({first_b.get('pdf_size_mb') or 0} MB)\n"
+            f"- **Arquivo EPUB:** `{epub_name}` ({first_b.get('epub_size_mb') or 0} MB)\n"
             f"- **Local no Disco:** `{first_b.get('book_dir') or os.path.dirname(pdf or '')}`"
         )
     else:
@@ -299,12 +314,12 @@ def on_select_book(selected_label):
     info = (
         f"### 📖 {book.get('title')}\n"
         f"- **Categoria:** `{cat_badge}` | **Autor:** {book.get('author', 'Desconhecido')}\n"
-        f"- **Idioma:** {book.get('lang', '').upper()} (Original: {book.get('source_lang', 'en').upper()})\n"
-        f"- **Páginas:** {book.get('pages', 0)} | **Tamanhos:** PDF ({book.get('pdf_size_mb', 0)} MB) • EPUB ({book.get('epub_size_mb', 0)} MB)\n"
+        f"- **Idioma:** {book.get('lang', '').upper()} (Original: {(book.get('source_lang') or '—').upper()})\n"
+        f"- **Páginas:** {book.get('pages') or 0} | **Tamanhos:** PDF ({book.get('pdf_size_mb') or 0} MB) • EPUB ({book.get('epub_size_mb') or 0} MB)\n"
         f"- **Arquivo PDF:** `{pdf_name}`\n"
         f"- **Arquivo EPUB:** `{epub_name}`\n"
         f"- **Local no Disco:** `{book.get('book_dir') or os.path.dirname(pdf_p or '')}`\n"
-        f"- **Data de Registro:** {(book.get('date_added') or '')[:10]}\n"
+        f"- **Data de Registro:** {((book.get('date_added') or '')[:10] or '—')}\n"
         f"- **Certificação:** ✅ 100% Qualidade Verificada"
     )
     return info, ""
@@ -405,7 +420,7 @@ def translate_book(
 
     status_msg = (
         f"### 🎉 Tradução Concluída com Sucesso!\n"
-        f"- **Livro:** {pipeline.parser.metadata.get('title')}\n"
+        f"- **Livro:** {pipeline.parser.metadata.get('title') or 'Título desconhecido'}\n"
         f"- **Tempo Total:** `{elapsed_time}`\n"
         f"- **Capítulos traduzidos:** {len(pipeline.parser.spine)}\n"
         f"- **PDF diagramado:** `{os.path.basename(final_pdf)}`\n"
@@ -920,13 +935,13 @@ with gr.Blocks(title="epub-pdf-translator", css=custom_css, theme=gr.themes.Soft
             books_grid = gr.HTML(value=initial_html)
 
             # Central de Ações Locais Desktop
-            initial_choices = [f"[{b['lang'].upper()}] {b['title']} | slug:{b['slug']}" for b in initial_books]
+            initial_choices = [f"[{b.get('lang', '?').upper()}] {b.get('title', 'Sem título')} | slug:{b.get('slug', '')}" for b in initial_books]
             first_b = initial_books[0] if initial_books else None
             initial_pdf = first_b.get("pdf_path") if first_b and os.path.exists(first_b.get("pdf_path", "")) else None
             initial_epub = first_b.get("epub_path") if first_b and os.path.exists(first_b.get("epub_path", "")) else None
             initial_cat = "📷 Digitalizado (OCR)" if first_b and first_b.get("category") == "ocr" else "🌐 Traduzido"
             initial_info = (
-                f"### 📖 {first_b.get('title')}\n- **Categoria:** `{initial_cat}` | **Autor:** {first_b.get('author')}\n- **Páginas:** {first_b.get('pages')} | **Idioma:** {first_b.get('lang', '').upper()}\n- **PDF:** {first_b.get('pdf_size_mb')} MB | **EPUB:** {first_b.get('epub_size_mb')} MB"
+                f"### 📖 {first_b.get('title', 'Sem título')}\n- **Categoria:** `{initial_cat}` | **Autor:** {first_b.get('author') or 'Autor Desconhecido'}\n- **Páginas:** {first_b.get('pages') or 0} | **Idioma:** {first_b.get('lang', '').upper()}\n- **PDF:** {first_b.get('pdf_size_mb') or 0} MB | **EPUB:** {first_b.get('epub_size_mb') or 0} MB"
                 if first_b else "Nenhum livro selecionado."
             )
 
@@ -958,7 +973,7 @@ with gr.Blocks(title="epub-pdf-translator", css=custom_css, theme=gr.themes.Soft
     )
     trans_open_pdf_btn.click(fn=open_file_desktop, inputs=[trans_last_pdf], outputs=[status_box])
     trans_open_epub_btn.click(fn=open_file_desktop, inputs=[trans_last_epub], outputs=[status_box])
-    trans_open_folder_btn.click(fn=open_folder_desktop, inputs=[trans_last_pdf], outputs=[status_box])
+    trans_open_folder_btn.click(fn=open_parent_folder_desktop, inputs=[trans_last_pdf], outputs=[status_box])
 
     # Aba 2: OCR
     convert_ocr_btn.click(
@@ -968,7 +983,7 @@ with gr.Blocks(title="epub-pdf-translator", css=custom_css, theme=gr.themes.Soft
         show_progress="minimal"
     )
     ocr_open_epub_btn.click(fn=open_file_desktop, inputs=[ocr_last_epub], outputs=[ocr_status_box])
-    ocr_open_folder_btn.click(fn=open_folder_desktop, inputs=[ocr_last_epub], outputs=[ocr_status_box])
+    ocr_open_folder_btn.click(fn=open_parent_folder_desktop, inputs=[ocr_last_epub], outputs=[ocr_status_box])
 
     # Aba 3: Conversor EPUB -> PDF
     conv_epub_to_pdf_btn.click(
@@ -978,7 +993,7 @@ with gr.Blocks(title="epub-pdf-translator", css=custom_css, theme=gr.themes.Soft
         show_progress="minimal"
     )
     conv_open_pdf_btn.click(fn=open_file_desktop, inputs=[conv_last_pdf], outputs=[conv_pdf_status])
-    conv_open_pdf_folder_btn.click(fn=open_folder_desktop, inputs=[conv_last_pdf], outputs=[conv_pdf_status])
+    conv_open_pdf_folder_btn.click(fn=open_parent_folder_desktop, inputs=[conv_last_pdf], outputs=[conv_pdf_status])
 
     # Aba 3: Conversor PDF -> EPUB
     conv_pdf_to_epub_btn.click(
@@ -988,7 +1003,7 @@ with gr.Blocks(title="epub-pdf-translator", css=custom_css, theme=gr.themes.Soft
         show_progress="minimal"
     )
     conv_open_epub_btn.click(fn=open_file_desktop, inputs=[conv_last_epub], outputs=[conv_epub_status])
-    conv_open_epub_folder_btn.click(fn=open_folder_desktop, inputs=[conv_last_epub], outputs=[conv_epub_status])
+    conv_open_epub_folder_btn.click(fn=open_parent_folder_desktop, inputs=[conv_last_epub], outputs=[conv_epub_status])
 
     # Aba 4: Biblioteca
     filter_lang.change(
