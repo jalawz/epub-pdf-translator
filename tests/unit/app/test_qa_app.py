@@ -529,6 +529,36 @@ class TestQAConvertPdfToEpub:
             assert result is not None
             assert "0" in result[1]
 
+    def test_none_title_author_passed_as_none_to_converter(self, tmp_path):
+        """CORREÇÃO QA-4/B1: title/author None viram None (não '' nem crash)."""
+        pdf = tmp_path / "doc.pdf"
+        pdf.write_bytes(b"fake")
+
+        with patch("app.FormatConverter.pdf_to_epub") as mock_conv:
+            mock_conv.return_value = (
+                str(tmp_path / "out.epub"),
+                {"title": "T", "chapters_created": 1, "epub_size_mb": 1.0, "total_pages": 1},
+            )
+            app.convert_pdf_to_epub_flow(_DummyFile(str(pdf)), None, None, "pt")
+            kwargs = mock_conv.call_args.kwargs
+            assert kwargs["title"] is None
+            assert kwargs["author"] is None
+
+    def test_whitespace_only_title_becomes_none(self, tmp_path):
+        """CORREÇÃO QA-4/B1: título só-espaços vira None, não ''."""
+        pdf = tmp_path / "doc.pdf"
+        pdf.write_bytes(b"fake")
+
+        with patch("app.FormatConverter.pdf_to_epub") as mock_conv:
+            mock_conv.return_value = (
+                str(tmp_path / "out.epub"),
+                {"title": "T", "chapters_created": 1, "epub_size_mb": 1.0, "total_pages": 1},
+            )
+            app.convert_pdf_to_epub_flow(_DummyFile(str(pdf)), "   ", "  Autor  ", "pt")
+            kwargs = mock_conv.call_args.kwargs
+            assert kwargs["title"] is None
+            assert kwargs["author"] == "Autor"
+
 
 # ============================================================================
 # 9. FORMAT_DURATION - valores extremos
@@ -538,8 +568,18 @@ class TestQAFormatDuration:
     def test_zero_seconds(self):
         assert app.format_duration(0) == "0s"
 
-    def test_negative_seconds(self):
-        assert app.format_duration(-5) == "-5s"
+    def test_negative_seconds_clamped_to_zero(self):
+        """CORREÇÃO QA-4/B2: segundos negativos viram '0s', não '-5s'."""
+        assert app.format_duration(-5) == "0s"
+        assert app.format_duration(-3600) == "0s"
+
+    def test_none_seconds_returns_zero(self):
+        """CORREÇÃO QA-4/B2: None não quebra o round(), retorna '0s'."""
+        assert app.format_duration(None) == "0s"
+
+    def test_non_numeric_seconds_returns_zero(self):
+        """Texto inválido também vira '0s' em vez de levantar exceção."""
+        assert app.format_duration("abc") == "0s"
 
     def test_exactly_60_seconds(self):
         assert app.format_duration(60) == "1 min 00 s"

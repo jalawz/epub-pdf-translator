@@ -67,7 +67,12 @@ FILTER_CATEGORY_OPTIONS = [
 ]
 
 def format_duration(seconds: float) -> str:
-    secs = int(round(seconds))
+    try:
+        secs = int(round(seconds))
+    except (TypeError, ValueError):
+        secs = 0
+    # Durações nunca são negativas: valores inválidos/negativos viram 0s
+    secs = max(0, secs)
     if secs < 60:
         return f"{secs}s"
     mins, remainder_secs = divmod(secs, 60)
@@ -75,6 +80,13 @@ def format_duration(seconds: float) -> str:
         return f"{mins} min {remainder_secs:02d} s"
     hours, remainder_mins = divmod(mins, 60)
     return f"{hours} h {remainder_mins:02d} min {remainder_secs:02d} s"
+
+def _clean_optional_text(value) -> str | None:
+    """Normaliza texto opcional: None, não-string ou só-espaços vira None."""
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    return cleaned or None
 
 def open_file_desktop(file_path: str) -> str:
     if not file_path or not os.path.exists(file_path):
@@ -395,7 +407,7 @@ def translate_book(
     t0 = time.time()
 
     if "Ollama" in engine_choice:
-        model_name = ollama_model.strip() or "qwen2.5:latest"
+        model_name = (ollama_model or "").strip() or "qwen2.5:latest"
         translator = OllamaTranslatorEngine(lang_in=source_lang, lang_out=target_lang, model=model_name)
     else:
         translator = BingTranslatorEngine(lang_in=source_lang, lang_out=target_lang)
@@ -511,8 +523,8 @@ def convert_pdf_to_epub_flow(pdf_file, title, author, lang, progress=gr.Progress
     final_epub, stats = FormatConverter.pdf_to_epub(
         pdf_path=input_path,
         output_dir=OUTPUT_DIR,
-        title=title.strip() if title else None,
-        author=author.strip() if author else None,
+        title=_clean_optional_text(title),
+        author=_clean_optional_text(author),
         lang=lang,
         progress_callback=on_progress
     )
