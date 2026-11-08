@@ -139,13 +139,13 @@ tests/
 
 ## 6. Métricas de Sucesso
 
-- [ ] `pytest` passa 100% localmente.
-- [ ] Cobertura ≥ 80% em `src/core/` e `src/pipeline.py`.
-- [ ] Nenhum `ModuleNotFoundError` após `pip install -r requirements.txt`.
-- [ ] Pipeline retoma após simulação de falha (checkpoint).
-- [ ] Código-fonte (Java/C#/SQL) sai idêntico após ciclo tradução simulada.
-- [ ] `QualityAuditor` funciona para ≥ 3 pares de idioma (EN→PT, EN→ES, FR→PT).
-- [ ] Nenhum hardcode de título/autor no `EpubRefiner`.
+- [x] `pytest` passa 100% localmente. (295 passed, 1 skipped — Chrome/Edge)
+- [x] Cobertura ≥ 80% em `src/core/` e `src/pipeline.py`. (87% em `src/`)
+- [x] Nenhum `ModuleNotFoundError` após `pip install -r requirements.txt`.
+- [x] Pipeline retoma após simulação de falha (checkpoint).
+- [x] Código-fonte (Java/C#/SQL) sai idêntico após ciclo tradução simulada.
+- [x] `QualityAuditor` funciona para ≥ 3 pares de idioma (EN→PT, EN→ES, FR→PT).
+- [x] Nenhum hardcode de título/autor no `EpubRefiner`.
 
 ---
 
@@ -267,11 +267,18 @@ Criar estados de pasta (`trans_last_folder`, `ocr_last_folder`, `conv_last_pdf_f
 
 ### 7.7 Critério de aceitação final
 
-- [ ] `pytest tests/unit/app/test_qa_app.py` → 42/42 passando
-- [ ] `pytest tests/` → 254+ passando, 0 falhas
-- [ ] Nenhum `KeyError`/`TypeError` não capturado em `app.py`
-- [ ] Nenhum HTML não escapado injetado na biblioteca
-- [ ] Botões "Abrir Pasta" abrem o diretório correto
+- [x] `pytest tests/unit/app/test_qa_app.py` → 42/42 passando
+- [x] `pytest tests/` → 295+ passando, 0 falhas
+- [x] Nenhum `KeyError`/`TypeError` não capturado em `app.py`
+- [x] Nenhum HTML não escapado injetado na biblioteca
+- [x] Botões "Abrir Pasta" abrem o diretório correto
+
+> **Status final (08/11/2026):** Plano 100% concluído. Sprints 1–8, QA-1 a QA-4,
+> Sprint 9 (hardening Bing + fallback Google online/grátis), Sprint 10
+> (QualityAuditor multi-idioma + fim do hardcode da biblioteca) e Sprint 11
+> (desktop multiplataforma + CLI `--dry-run`/`--version`) mergeados.
+> O Sprint 12 (separação UI/lógica do `app.py`) foi deliberadamente adiado:
+> risco de regressão sem ganho funcional, conforme code review do PR #7.
 
 ---
 
