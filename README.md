@@ -33,7 +33,9 @@ O **`epub-pdf-translator`** resolve esse problema na raiz:
       ▼
 [Loop Capítulo por Capítulo]
    ├─ [CodeShield] ──> Mascara tags <code>, <pre>, URLs com tokens invioláveis
-   ├─ [Translator] ──> Traduz em paralelo (Bing Neural ou Ollama Local)
+   ├─ [Translator] ──> Traduz em paralelo (Bing Neural com fallback automático
+   │                    para o Google Translate online — grátis, sem chave;
+   │                    Ollama local disponível como opção manual)
    ├─ [CodeShield] ──> Restaura as tags e códigos originais
    ├─ [Cache/Disk] ──> Salva versão traduzida (resiliência contra falhas)
    └─ [PdfRenderer] ──> Renderiza o PDF individual do capítulo via Chromium headless
@@ -97,6 +99,50 @@ Opções disponíveis no CLI:
 * `-o`, `--output-dir`: Diretório de saída (padrão: `output`)
 * `-w`, `--workers`: Número de threads simultâneas (padrão: `5`)
 * `--ollama`: Nome do modelo local no Ollama (ex: `qwen2.5:latest`, `llama3.1:latest`)
+* `--dry-run`: Valida as entradas e imprime o plano sem traduzir
+* `--version`: Imprime a versão do pacote e sai
+
+```bash
+# Simulação (não traduz nada)
+python cli.py "caminho/do/seu_livro.epub" --dry-run
+
+# Versão instalada
+python cli.py --version
+```
+
+---
+
+## 🧪 Qualidade e Testes
+
+O projeto é desenvolvido com **Test-Driven Development (TDD)** e possui suíte automatizada completa:
+
+```bash
+# Rodar todos os testes
+pytest
+
+# Rodar com cobertura
+pytest --cov=src --cov-report=term
+```
+
+- **295 testes** (unitários, de integração e de QA da interface), cobertura de **87%** em `src/`
+- Testes de QA exercem todas as funções da interface Gradio com casos extremos, dados ausentes e entradas maliciosas (XSS, path traversal)
+- Auditoria de qualidade pós-tradução gera `translation_quality_report.json` (QualityAuditor multi-idioma: EN→PT, EN→ES, FR→PT)
+
+---
+
+## 💻 Compatibilidade
+
+- **Interface desktop:** Windows (`os.startfile`/Explorer), macOS (`open`/`open -R`) e Linux (`xdg-open`) — ações "abrir arquivo/pasta" são multiplataforma
+- **Endpoints locais** (`/api/open-file`, `/api/open-folder`) confinados ao diretório `output/` (path traversal rejeitado com HTTP 403)
+- **Geração de PDF:** requer Google Chrome ou Microsoft Edge instalado (detecção automática)
+
+---
+
+## ⚠️ Limitações conhecidas
+
+- O motor padrão usa endpoints web não-oficiais do Bing/Google (gratuitos, sem chave). O Bing possui padrões de extração alternativos, backoff exponencial e **fallback automático para o Google Translate online**; uma API oficial (ex.: Azure Translator, com chave) pode ser adicionada como opção futura
+- A auditoria de qualidade por stopwords cobre EN/PT/ES/FR; para idiomas sem espaços (ex.: chinês/japonês) o método é menos eficaz
+- `app.py` concentra interface, handlers e endpoints em um único módulo Gradio (refatoração de separação UI/lógica deliberadamente adiada — ver `PLANO_MELHORIAS.md`)
 
 ---
 
@@ -108,12 +154,20 @@ epub-pdf-translator/
 │   ├── core/
 │   │   ├── epub_parser.py      # Leitura de container, manifest e spine
 │   │   ├── code_shield.py      # Blindagem de código e URLs
-│   │   ├── translator.py       # Bing Translator & Ollama Engine
+│   │   ├── translator.py       # Bing (fallback Google online) & Ollama Engine
+│   │   ├── quality_auditor.py  # Auditoria multi-idioma de tradução
+│   │   ├── library.py          # Biblioteca digital local (sem hardcodes)
+│   │   ├── epub_refiner.py     # Refinamento de EPUB preservando metadados
+│   │   ├── layout_ocr.py       # OCR com detecção de layout semântico
+│   │   ├── converter.py        # Conversão EPUB <-> PDF
+│   │   ├── scanned_detector.py # Detecção de PDF escaneado
 │   │   ├── pdf_renderer.py     # Compilador HTML->PDF via Chromium headless
 │   │   └── merger.py           # Concatenação de PDFs e empacotamento EPUB
-│   └── pipeline.py             # Orquestrador com sistema de checkpoints
+│   ├── pipeline.py             # Orquestrador com sistema de checkpoints
+│   └── ocr_pipeline.py         # Pipeline OCR -> EPUB
 ├── app.py                      # Aplicação Web com Gradio
 ├── cli.py                      # Interface CLI
+├── tests/                      # Suíte de testes (unit, integração, QA de UI)
 ├── requirements.txt
 ├── .gitignore
 ├── LICENSE
