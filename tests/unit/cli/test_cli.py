@@ -64,9 +64,9 @@ class TestCliArgumentParsing:
 class TestCliMainFlow:
     @patch("cli.TranslationPipeline")
     @patch("cli.BingTranslatorEngine")
-    @patch("cli.OllamaTranslatorEngine")
+    @patch("cli.GoogleTranslateEngine")
     @patch("cli.os.path.exists", return_value=True)
-    def test_main_uses_bing_by_default(self, mock_exists, mock_ollama, mock_bing,
+    def test_main_uses_bing_by_default(self, mock_exists, mock_google, mock_bing,
                                        mock_pipeline):
         """CLI padrão deve usar BingTranslatorEngine quando --ollama não informado."""
         mock_instance = MagicMock()
@@ -81,12 +81,10 @@ class TestCliMainFlow:
                     pass
 
         mock_bing.assert_called_once_with(
-            lang_in="en", lang_out="pt", fallback_engine=mock_ollama.return_value
+            lang_in="en", lang_out="pt", fallback_engine=mock_google.return_value
         )
-        # Ollama é instanciado como fallback do Bing
-        mock_ollama.assert_called_once_with(
-            lang_in="en", lang_out="pt", model="qwen2.5:latest"
-        )
+        # Google é instanciado como fallback online do Bing
+        mock_google.assert_called_once_with(lang_in="en", lang_out="pt")
 
     @patch("cli.TranslationPipeline")
     @patch("cli.BingTranslatorEngine")

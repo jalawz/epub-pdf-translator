@@ -10,7 +10,7 @@ from unittest.mock import patch, MagicMock
 import pytest
 import requests
 
-from src.core.translator import BingTranslatorEngine, OllamaTranslatorEngine
+from src.core.translator import BingTranslatorEngine, GoogleTranslateEngine, OllamaTranslatorEngine
 
 BING_GET_HTML = """
 <html><body>
@@ -126,3 +126,43 @@ class TestFallbackEngine:
             result = t.translate("Hello world")
 
         assert result == "Hello world"
+
+
+# ---------------------------------------------------------------------------
+# GoogleTranslateEngine (fallback online e grátis, sem chave)
+# ---------------------------------------------------------------------------
+class TestGoogleTranslateEngine:
+    @patch("requests.Session.get")
+    def test_translate_returns_google_response(self, mock_get):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = [[["Olá mundo", "Hello world", None, None, 10]]]
+        mock_get.return_value = mock_resp
+
+        t = GoogleTranslateEngine(lang_in="en", lang_out="pt")
+        result = t.translate("Hello world")
+
+        assert result == "Olá mundo"
+        params = mock_get.call_args.kwargs["params"]
+        assert params["client"] == "gtx"
+        assert params["sl"] == "en"
+        assert params["tl"] == "pt"
+
+    @patch("requests.Session.get", side_effect=requests.ConnectionError("sem rede"))
+    def test_connection_error_returns_original(self, mock_get):
+        t = GoogleTranslateEngine(lang_in="en", lang_out="pt")
+        assert t.translate("Hello world") == "Hello world"
+
+    def test_empty_text_returns_empty(self):
+        t = GoogleTranslateEngine(lang_in="en", lang_out="pt")
+        assert t.translate("") == ""
+        assert t.translate("   ") == "   "
+
+    @patch("requests.Session.get")
+    def test_non_200_returns_original(self, mock_get):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 429
+        mock_get.return_value = mock_resp
+
+        t = GoogleTranslateEngine(lang_in="en", lang_out="pt")
+        assert t.translate("Hello world") == "Hello world"

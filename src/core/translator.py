@@ -158,6 +158,67 @@ class BingTranslatorEngine(BaseTranslatorEngine):
         translated_chunks = [self._translate_single_chunk(c) for c in chunks]
         return " ".join(translated_chunks)
 
+class GoogleTranslateEngine(BaseTranslatorEngine):
+    """Free online fallback translator (no API key required).
+
+    Uses the public Google Translate web endpoint. This is an unofficial
+    endpoint (no SLA), so it is used only as a fallback when the primary
+    engine is unavailable. Returns the original text on failure.
+    """
+
+    def __init__(self, lang_in: str = "en", lang_out: str = "pt"):
+        self.lang_in = lang_in
+        self.lang_out = lang_out
+        self.endpoint = "https://translate.googleapis.com/translate_a/single"
+        self.session = requests.Session()
+        self.headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+        }
+
+    def _translate_single_chunk(self, text: str) -> str:
+        try:
+            res = self.session.get(
+                self.endpoint,
+                params={
+                    "client": "gtx",
+                    "sl": self.lang_in,
+                    "tl": self.lang_out,
+                    "dt": "t",
+                    "q": text,
+                },
+                headers=self.headers,
+                timeout=10,
+            )
+            if res.status_code == 200:
+                data = res.json()
+                # data[0] is a list of segments: [[translated, original, ...], ...]
+                if isinstance(data, list) and data and isinstance(data[0], list):
+                    return "".join(segment[0] for segment in data[0] if segment)
+        except Exception as e:
+            print(f"[GoogleTranslate Error] {e}")
+        return text
+
+    def translate(self, text: str) -> str:
+        if not text or not text.strip():
+            return text
+        if len(text) <= 1000:
+            return self._translate_single_chunk(text)
+        # Split long text by sentence boundaries, like the Bing engine.
+        sentences = re.split(r'(?<=[.!?\n])\s+', text)
+        chunks = []
+        cur = ""
+        for s in sentences:
+            if len(cur) + len(s) + 1 <= 900:
+                cur = f"{cur} {s}" if cur else s
+            else:
+                if cur:
+                    chunks.append(cur)
+                cur = s
+        if cur:
+            chunks.append(cur)
+        return " ".join(self._translate_single_chunk(c) for c in chunks)
+
+
 class OllamaTranslatorEngine(BaseTranslatorEngine):
     """Local offline translator via Ollama."""
 
