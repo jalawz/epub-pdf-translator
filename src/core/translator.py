@@ -12,11 +12,36 @@ class BaseTranslatorEngine(ABC):
         pass
 
 class BingTranslatorEngine(BaseTranslatorEngine):
-    """Fast, free Bing Neural Translation engine with token caching and connection pooling."""
+    """Fast, free Bing Neural Translation engine with token caching and connection pooling.
 
-    def __init__(self, lang_in: str = "en", lang_out: str = "pt"):
+    The Bing web endpoint is unofficial (page scraping), so extraction of the
+    session tokens uses multiple pattern fallbacks, retries use exponential
+    backoff, and an optional fallback engine (e.g. Ollama) takes over when the
+    Bing endpoint stays unavailable instead of silently returning the
+    untranslated source text.
+    """
+
+    # Fallback patterns tried in order for each token (first match wins).
+    _IG_PATTERNS = (r'"ig"\s*:\s*"(.*?)"', r"'ig'\s*:\s*'(.*?)'")
+    _IID_PATTERNS = (r'data-iid="(.*?)"', r"data-iid='(.*?)'")
+    _KEY_TOKEN_PATTERNS = (
+        r'params_AbusePreventionHelper\s=\s\[(.*?),\"(.*?)\",',
+        r'params_AbusePreventionHelper\s*=\s*\[\s*"(.*?)","(.*?)"',
+    )
+
+    # Exponential backoff base in seconds: 0.5, 1.0, 2.0, ...
+    BACKOFF_BASE_SECONDS = 0.5
+    MAX_ATTEMPTS = 3
+
+    def __init__(
+        self,
+        lang_in: str = "en",
+        lang_out: str = "pt",
+        fallback_engine: "BaseTranslatorEngine | None" = None,
+    ):
         self.lang_in = lang_in
         self.lang_out = lang_out
+        self.fallback_engine = fallback_engine
         self.endpoint = "https://www.bing.com/translator"
         self.headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
@@ -30,26 +55,44 @@ class BingTranslatorEngine(BaseTranslatorEngine):
         self.token = None
         self._refresh_token()
 
+    @staticmethod
+    def _extract_first(patterns, text: str, last: bool = False):
+        """Return the first captured group of the first pattern that matches."""
+        for pattern in patterns:
+            matches = re.findall(pattern, text)
+            if matches:
+                return matches[-1] if last else matches[0]
+        return None
+
     def _refresh_token(self):
         with self.lock:
-            for _ in range(3):
+            for attempt in range(self.MAX_ATTEMPTS):
                 try:
                     r = self.session.get(self.endpoint, headers=self.headers, timeout=10)
                     r.raise_for_status()
                     self.url = r.url[:-10]
-                    self.ig = re.findall(r'\"ig\":\"(.*?)\"', r.text)[0]
-                    self.iid = re.findall(r'data-iid=\"(.*?)\"', r.text)[-1]
-                    self.key, self.token = re.findall(r'params_AbusePreventionHelper\s=\s\[(.*?),\"(.*?)\",', r.text)[0]
+                    self.ig = self._extract_first(self._IG_PATTERNS, r.text)
+                    self.iid = self._extract_first(self._IID_PATTERNS, r.text, last=True)
+                    key_token = None
+                    for pattern in self._KEY_TOKEN_PATTERNS:
+                        found = re.findall(pattern, r.text)
+                        if found:
+                            key_token = found[0]
+                            break
+                    if not (self.ig and self.iid and key_token):
+                        raise ValueError("Bing session tokens not found in page")
+                    self.key, self.token = key_token
                     return
                 except Exception:
-                    time.sleep(1)
+                    if attempt < self.MAX_ATTEMPTS - 1:
+                        time.sleep(self.BACKOFF_BASE_SECONDS * (2 ** attempt))
             raise RuntimeError("Failed to obtain Bing Translator authentication tokens.")
 
     def _translate_single_chunk(self, text: str) -> str:
         if not text or not text.strip():
             return text
 
-        for attempt in range(3):
+        for attempt in range(self.MAX_ATTEMPTS):
             try:
                 post_url = f"{self.url}ttranslatev3?IG={self.ig}&IID={self.iid}"
                 res = self.session.post(
@@ -73,9 +116,21 @@ class BingTranslatorEngine(BaseTranslatorEngine):
                 elif res.status_code in (401, 403, 400):
                     self._refresh_token()
             except Exception:
-                time.sleep(0.5)
-                self._refresh_token()
+                if attempt < self.MAX_ATTEMPTS - 1:
+                    time.sleep(self.BACKOFF_BASE_SECONDS * (2 ** attempt))
+                try:
+                    self._refresh_token()
+                except RuntimeError:
+                    # Keep trying the next attempt; the fallback engine (if
+                    # any) is used once all attempts are exhausted.
+                    pass
 
+        if self.fallback_engine is not None:
+            try:
+                print("[Bing] Endpoint unavailable; using fallback translation engine.")
+                return self.fallback_engine.translate(text)
+            except Exception:
+                pass
         return text
 
     def translate(self, text: str) -> str:

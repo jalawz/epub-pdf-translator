@@ -80,8 +80,13 @@ class TestCliMainFlow:
                 except SystemExit:
                     pass
 
-        mock_bing.assert_called_once_with(lang_in="en", lang_out="pt")
-        mock_ollama.assert_not_called()
+        mock_bing.assert_called_once_with(
+            lang_in="en", lang_out="pt", fallback_engine=mock_ollama.return_value
+        )
+        # Ollama é instanciado como fallback do Bing
+        mock_ollama.assert_called_once_with(
+            lang_in="en", lang_out="pt", model="qwen2.5:latest"
+        )
 
     @patch("cli.TranslationPipeline")
     @patch("cli.BingTranslatorEngine")
@@ -131,7 +136,10 @@ class TestCliMainFlow:
                 except SystemExit:
                     pass
 
-        mock_bing.assert_called_once_with(lang_in="fr", lang_out="es")
+        call_kwargs = mock_bing.call_args.kwargs
+        assert call_kwargs["lang_in"] == "fr"
+        assert call_kwargs["lang_out"] == "es"
+        assert "fallback_engine" in call_kwargs
 
     @patch("cli.TranslationPipeline")
     @patch("cli.BingTranslatorEngine")

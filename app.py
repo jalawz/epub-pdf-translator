@@ -410,7 +410,14 @@ def translate_book(
         model_name = (ollama_model or "").strip() or "qwen2.5:latest"
         translator = OllamaTranslatorEngine(lang_in=source_lang, lang_out=target_lang, model=model_name)
     else:
-        translator = BingTranslatorEngine(lang_in=source_lang, lang_out=target_lang)
+        # Bing com fallback automático para o Ollama local (grátis/offline)
+        # caso o endpoint não-oficial fique indisponível.
+        fallback = OllamaTranslatorEngine(
+            lang_in=source_lang,
+            lang_out=target_lang,
+            model=(ollama_model or "").strip() or "qwen2.5:latest",
+        )
+        translator = BingTranslatorEngine(lang_in=source_lang, lang_out=target_lang, fallback_engine=fallback)
 
     pipeline = TranslationPipeline(
         epub_path=input_path,
