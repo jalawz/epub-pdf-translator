@@ -92,3 +92,46 @@ class TestOpenParentFolderDesktop:
             result = app.open_parent_folder_desktop("/tmp/minha_pasta")
             mock_startfile.assert_called_once_with("/tmp/minha_pasta")
             assert "Pasta aberta" in result
+
+
+class TestMultiplatformDesktop:
+    """SPRINT 11: abertura multiplataforma (Windows/Linux/macOS)."""
+
+    def test_open_file_linux_uses_xdg_open(self):
+        """No Linux, abrir arquivo usa xdg-open."""
+        with patch("sys.platform", "linux"), \
+             patch("app.os.path.exists", return_value=True), \
+             patch("app.os.path.normpath", side_effect=lambda x: x), \
+             patch("app.subprocess.Popen") as mock_popen:
+            result = app.open_file_desktop("/tmp/livro.pdf")
+            mock_popen.assert_called_once_with(["xdg-open", "/tmp/livro.pdf"])
+            assert "leitor" in result.lower()
+
+    def test_open_file_darwin_uses_open(self):
+        """No macOS, abrir arquivo usa open."""
+        with patch("sys.platform", "darwin"), \
+             patch("app.os.path.exists", return_value=True), \
+             patch("app.os.path.normpath", side_effect=lambda x: x), \
+             patch("app.subprocess.Popen") as mock_popen:
+            app.open_file_desktop("/tmp/livro.pdf")
+            mock_popen.assert_called_once_with(["open", "/tmp/livro.pdf"])
+
+    def test_reveal_file_linux_opens_parent_dir(self):
+        """No Linux, revelar arquivo abre a pasta-pai via xdg-open."""
+        with patch("sys.platform", "linux"), \
+             patch("app.os.path.exists", return_value=True), \
+             patch("app.os.path.normpath", side_effect=lambda x: x), \
+             patch("app.os.path.isdir", return_value=False), \
+             patch("app.subprocess.Popen") as mock_popen:
+            app.open_folder_desktop("/tmp/livro.pdf")
+            mock_popen.assert_called_once_with(["xdg-open", "/tmp"])
+
+    def test_reveal_file_darwin_uses_open_r(self):
+        """No macOS, revelar arquivo usa open -R."""
+        with patch("sys.platform", "darwin"), \
+             patch("app.os.path.exists", return_value=True), \
+             patch("app.os.path.normpath", side_effect=lambda x: x), \
+             patch("app.os.path.isdir", return_value=False), \
+             patch("app.subprocess.Popen") as mock_popen:
+            app.open_folder_desktop("/tmp/livro.pdf")
+            mock_popen.assert_called_once_with(["open", "-R", "/tmp/livro.pdf"])
