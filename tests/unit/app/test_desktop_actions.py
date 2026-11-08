@@ -62,3 +62,33 @@ class TestOpenFolderDesktop:
         with patch("app.os.path.exists", return_value=False):
             result = app.open_folder_desktop("/caminho/nao/existe")
         assert "não encontrado" in result.lower()
+
+
+class TestOpenParentFolderDesktop:
+    """CORREÇÃO QA-3/U1-U4: botões 'Abrir Pasta' abrem a pasta do arquivo."""
+
+    def test_missing_file_returns_warning(self):
+        """Arquivo inexistente deve retornar aviso."""
+        with patch("app.os.path.exists", return_value=False):
+            result = app.open_parent_folder_desktop("/caminho/nao/existe.pdf")
+        assert "não encontrado" in result.lower()
+
+    def test_file_opens_parent_dir(self):
+        """Arquivo existente abre a pasta-pai, não o arquivo em si."""
+        with patch("app.os.path.exists", return_value=True), \
+             patch("app.os.path.normpath", side_effect=lambda x: x), \
+             patch("app.os.path.isdir", side_effect=lambda p: p == "/tmp"), \
+             patch("app.os.startfile") as mock_startfile:
+            result = app.open_parent_folder_desktop("/tmp/livro.pdf")
+            mock_startfile.assert_called_once_with("/tmp")
+            assert "Pasta aberta" in result
+
+    def test_folder_opens_itself(self):
+        """Se já for pasta, abre-a diretamente."""
+        with patch("app.os.path.exists", return_value=True), \
+             patch("app.os.path.normpath", side_effect=lambda x: x), \
+             patch("app.os.path.isdir", return_value=True), \
+             patch("app.os.startfile") as mock_startfile:
+            result = app.open_parent_folder_desktop("/tmp/minha_pasta")
+            mock_startfile.assert_called_once_with("/tmp/minha_pasta")
+            assert "Pasta aberta" in result

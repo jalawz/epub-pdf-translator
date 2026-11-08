@@ -274,8 +274,8 @@ class TestQAUpdateLibraryView:
             grid, choices_update, info, feedback = app.update_library_view("Todos", "Todos")
             assert "T" in grid
 
-    def test_pdf_size_mb_none_shows_none(self, tmp_path):
-        """pdf_size_mb ausente mostra 'None MB' na UI."""
+    def test_pdf_size_mb_none_shows_zero(self, tmp_path):
+        """CORREÇÃO QA-3/U6: pdf_size_mb None mostra '0 MB', não 'None MB'."""
         with patch.object(app.BookLibrary, "list_books", return_value=[
             {"lang": "pt", "title": "T", "slug": "s", "author": "A",
              "category": "translation", "pages": 10,
@@ -286,7 +286,8 @@ class TestQAUpdateLibraryView:
              "book_dir": str(tmp_path)}
         ]):
             grid, choices_update, info, feedback = app.update_library_view("Todos", "Todos")
-            assert "None MB" in grid or "None MB" in info
+            assert "None MB" not in grid and "None MB" not in info
+            assert "0 MB" in grid or "0 MB" in info
 
     def test_date_added_none_shows_empty_label(self, tmp_path):
         """date_added ausente resulta em 'Data de Registro: ' vazio."""
@@ -309,8 +310,8 @@ class TestQAUpdateLibraryView:
 # ============================================================================
 
 class TestQAOnSelectBook:
-    def test_book_missing_source_lang_defaults_en(self, tmp_path):
-        """on_select_book usa book.get('source_lang', 'en') - default hardcoded."""
+    def test_book_missing_source_lang_shows_dash(self, tmp_path):
+        """CORREÇÃO QA-3/U5: source_lang ausente exibe '—', não inventa 'EN'."""
         with patch.object(app.BookLibrary, "get_book", return_value={
             "title": "T", "author": "A", "lang": "pt",
             "category": "translation", "pages": 10,
@@ -319,10 +320,9 @@ class TestQAOnSelectBook:
             "pdf_path": str(tmp_path / "a.pdf"),
             "epub_path": str(tmp_path / "a.epub"),
             "book_dir": str(tmp_path),
-            # source_lang ausente -> default 'en'
         }):
             info, feedback = app.on_select_book("[PT] T | slug:t")
-            assert "Original: EN" in info  # default 'en' -> .upper() -> EN
+            assert "Original: —" in info
 
     def test_book_missing_date_added_shows_empty(self, tmp_path):
         """date_added ausente mostra 'Data de Registro: ' vazio."""
@@ -394,8 +394,8 @@ class TestQAActions:
 # ============================================================================
 
 class TestQATranslateBookFields:
-    def test_pipeline_parser_metadata_missing_title_shows_none(self, tmp_path):
-        """se pipeline.parser.metadata.get('title') for None, mostra 'None'."""
+    def test_pipeline_parser_metadata_missing_title_shows_default(self, tmp_path):
+        """CORREÇÃO QA-3/U7: título None no status exibe 'Título desconhecido', não 'None'."""
         epub = tmp_path / "book.epub"
         epub.write_bytes(b"fake")
 
@@ -413,7 +413,7 @@ class TestQATranslateBookFields:
                         "Neural Fast Translator (Padrão, Gratuito)",
                         "qwen2.5:latest", 5, False,
                     )
-                    assert "None" in status  # título None aparece no status
+                    assert "Título desconhecido" in status
 
     def test_translate_book_ollama_empty_model_defaults_qwen(self, tmp_path):
         """ollama_model vazio -> 'qwen2.5:latest'."""
